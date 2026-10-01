@@ -429,6 +429,27 @@ class OmniGoCRM_REST {
 
     public function delete_media($request){global $wpdb;$id=(int)$request['id'];$wpdb->update($this->t['media'],array('active'=>0,'is_active'=>0,'updated_at'=>current_time('mysql')),array('id'=>$id));$this->audit('delete','media_asset',$id);return rest_ensure_response(array('success'=>true));}
 
+    public function convert_lead($request) {
+        global $wpdb;
+        $id=(int)$request['id'];
+        $lead=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['leads']} WHERE id=%d",$id));
+        if(!$lead)return new WP_Error('not_found','Lead not found.',array('status'=>404));
+        $now=current_time('mysql');
+        $contact_id=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['contacts']} WHERE email=%s OR phone=%s ORDER BY id DESC LIMIT 1",$lead->email,$lead->phone));
+        if(!$contact_id){
+            $wpdb->insert($this->t['contacts'],array('first_name'=>$lead->first_name,'last_name'=>$lead->last_name,'company'=>$lead->company,'email'=>$lead->email,'phone'=>$lead->phone,'job_title'=>$lead->job_title,'website'=>$lead->website,'location'=>$lead->location,'owner_id'=>$lead->owner_id?:get_current_user_id(),'created_at'=>$now,'updated_at'=>$now));
+            $contact_id=$wpdb->insert_id;
+        }
+        $opp_id=0;
+        if(!empty($lead->value) || !empty($lead->company)){
+            $wpdb->insert($this->t['opportunities'],array('name'=>trim($lead->first_name.' '.$lead->last_name).' Opportunity','company'=>$lead->company,'amount'=>(float)$lead->value,'currency'=>'INR','stage'=>'New','probability'=>10,'close_date'=>$lead->expected_close_date,'expected_close_date'=>$lead->expected_close_date,'contact_id'=>$contact_id,'owner_id'=>$lead->owner_id?:get_current_user_id(),'description'=>'Converted from lead #'.$id,'created_at'=>$now,'updated_at'=>$now));
+            $opp_id=$wpdb->insert_id;
+        }
+        $wpdb->update($this->t['leads'],array('status'=>'converted','updated_at'=>$now),array('id'=>$id));
+        $this->audit('convert','lead',$id,array('contact_id'=>$contact_id,'opportunity_id'=>$opp_id));
+        return rest_ensure_response(array('success'=>true,'lead_id'=>$id,'contact_id'=>$contact_id,'opportunity_id'=>$opp_id));
+    }
+
     public function whatsapp($request) {
         global $wpdb;$lead_id=(int)$request['id'];$lead=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['leads']} WHERE id=%d",$lead_id));
         if(!$lead)return new WP_Error('not_found','Lead not found.',array('status'=>404));
