@@ -14,6 +14,16 @@ jobs:
       - name: PHP lint
         run: |
           find . -name "*.php" -print0 | xargs -0 -n1 php -l
+      - name: Install React dependencies
+        working-directory: app
+        run: npm install
+      - name: Build React production assets
+        working-directory: app
+        run: npm run build
+      - name: Verify React build
+        run: |
+          test -f assets/react-dist/omnigocrm.js
+          test -f assets/react-dist/omnigocrm.css
       - name: JavaScript syntax check
         run: node --check assets/admin.js
       - name: Verify plugin structure
@@ -21,5 +31,5 @@ jobs:
           test -f omnigocrm.php
           test -f includes/class-omnigocrm-db.php
           test -f includes/class-omnigocrm-rest.php
-          test -f assets/admin.js
-          test -f assets/admin.css
+          test -f app/package.json
+          test -f app/vite.config.js
