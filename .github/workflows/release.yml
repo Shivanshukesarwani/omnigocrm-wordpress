@@ -1,0 +1,35 @@
+name: Build OmniGoCRM WordPress Plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PHP
+        run: find . -name "*.php" -print0 | xargs -0 -n1 php -l
+      - name: Validate JavaScript
+        run: node --check assets/admin.js
+      - name: Package plugin
+        run: |
+          mkdir -p build/omnigocrm
+          cp -R omnigocrm.php includes assets readme.txt README.md uninstall.php build/omnigocrm/
+          cd build
+          zip -r ../omnigocrm-wordpress.zip omnigocrm
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnigocrm-wordpress
+          path: omnigocrm-wordpress.zip
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: omnigocrm-wordpress.zip
