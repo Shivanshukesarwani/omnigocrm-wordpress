@@ -2,8 +2,8 @@
 /**
  * Plugin Name: OmniGoCRM
  * Plugin URI: https://github.com/ShivanshuKesarwani/omnigocrm-wordpress
- * Description: WordPress-native CRM for shared hosting: leads, contacts, companies, opportunities, tasks, products, WhatsApp and CRM activity.
- * Version: 0.2.0
+ * Description: Full WordPress-native CRM and sales workspace with leads, contacts, companies, pipeline, quotes, orders, invoices, payments, omnichannel conversations, automation, reports and settings.
+ * Version: 0.3.0
  * Author: Shivanshu Kesarwani
  * License: GPL-2.0-or-later
  * Text Domain: omnigocrm
@@ -11,7 +11,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('OMNIGOCRM_VERSION', '0.2.0');
+define('OMNIGOCRM_VERSION', '0.3.0');
 define('OMNIGOCRM_FILE', __FILE__);
 define('OMNIGOCRM_DIR', plugin_dir_path(__FILE__));
 define('OMNIGOCRM_URL', plugin_dir_url(__FILE__));
@@ -19,7 +19,18 @@ define('OMNIGOCRM_URL', plugin_dir_url(__FILE__));
 require_once OMNIGOCRM_DIR . 'includes/class-omnigocrm-db.php';
 require_once OMNIGOCRM_DIR . 'includes/class-omnigocrm-rest.php';
 
-register_activation_hook(__FILE__, array('OmniGoCRM_DB', 'activate'));
+function omnigocrm_activate() {
+    OmniGoCRM_DB::activate();
+    if (!wp_next_scheduled('omnigocrm_process_jobs')) {
+        wp_schedule_event(time() + 60, 'hourly', 'omnigocrm_process_jobs');
+    }
+}
+register_activation_hook(__FILE__, 'omnigocrm_activate');
+
+function omnigocrm_deactivate() {
+    wp_clear_scheduled_hook('omnigocrm_process_jobs');
+}
+register_deactivation_hook(__FILE__, 'omnigocrm_deactivate');
 
 function omnigocrm_boot() {
     if (get_option('omnigocrm_db_version') !== OMNIGOCRM_VERSION) {
@@ -54,7 +65,8 @@ function omnigocrm_assets($hook) {
         'restUrl' => esc_url_raw(rest_url('omnigocrm/v1')),
         'nonce' => wp_create_nonce('wp_rest'),
         'adminUrl' => admin_url(),
-        'version' => OMNIGOCRM_VERSION
+        'version' => OMNIGOCRM_VERSION,
+        'userId' => get_current_user_id()
     ));
 }
 add_action('admin_enqueue_scripts', 'omnigocrm_assets');
