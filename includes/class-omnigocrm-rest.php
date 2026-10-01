@@ -23,7 +23,7 @@ class OmniGoCRM_REST {
     }
 
     private function admin_permission() {
-        return current_user_can('manage_options');
+        return current_user_can('omnigocrm_settings') || current_user_can('manage_options');
     }
 
     private function role_permission() {
@@ -588,7 +588,7 @@ class OmniGoCRM_REST {
         if(email_exists($email))return new WP_Error('exists','A user with this email already exists.',array('status'=>409));
         $username=sanitize_user(current(explode('@',$email)),true);
         if(username_exists($username))$username=$username.'_'.wp_rand(100,999);
-        $wp_role=array('owner'=>'administrator','admin'=>'administrator','manager'=>'omnigocrm_manager','agent'=>'omnigocrm_agent','viewer'=>'omnigocrm_viewer');
+        $wp_role=array('owner'=>'omnigocrm_owner','admin'=>'omnigocrm_admin','manager'=>'omnigocrm_manager','agent'=>'omnigocrm_agent','viewer'=>'omnigocrm_viewer');
         $user_id=wp_insert_user(array('user_login'=>$username,'user_email'=>$email,'display_name'=>$name,'user_pass'=>$password,'role'=>$wp_role[$role]??'omnigocrm_agent'));
         if(is_wp_error($user_id))return $user_id;
         $this->audit('create','user',$user_id,array('crm_role'=>$role));
