@@ -150,7 +150,7 @@ function Integrations(){
 function Audit(){
   const [rows,setRows]=useState([]);
   useEffect(()=>api('/audit-logs').then(r=>setRows(r.data||r)).catch(()=>setRows([])),[]);
-  return <><PageHead title="Audit Log" desc="Track changes and actions performed in the CRM."/><section className="panel table-panel"><table><thead><tr><th>Action</th><th>Object</th><th>ID</th><th>User</th><th>Date</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{x.action}</td><td>{x.object_type}</td><td>{x.object_id}</td><td>{x.user_id}</td><td>{x.created_at}</td></tr>)}</tbody></table>{!rows.length&&<div className="empty">No audit events.</div>}</section></section></>
+  return <><PageHead title="Audit Log" desc="Track changes and actions performed in the CRM."/><section className="panel table-panel"><table><thead><tr><th>Action</th><th>Object</th><th>ID</th><th>User</th><th>Date</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{x.action}</td><td>{x.object_type}</td><td>{x.object_id}</td><td>{x.user_id}</td><td>{x.created_at}</td></tr>)}</tbody></table>{!rows.length&&<div className="empty">No audit events.</div>}</section></>
 }
 
 function Reports(){
