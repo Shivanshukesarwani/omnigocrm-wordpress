@@ -44,7 +44,7 @@ function omnigocrm_admin_menu() {
     add_menu_page(
         'OmniGoCRM',
         'OmniGoCRM',
-        'read',
+        'omnigocrm_access',
         'omnigocrm',
         'omnigocrm_render_app',
         'dashicons-groups',
