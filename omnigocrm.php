@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name: OmniGoCRM
- * Plugin URI: https://github.com/Shivanshukesarwani/omnigocrm-wordpress
- * Description: Self-hosted CRM for WordPress hosting. Leads, contacts, companies, opportunities, tasks, WhatsApp Click-to-Chat, templates, media assets, reports and settings.
- * Version: 0.1.0
+ * Plugin URI: https://github.com/ShivanshuKesarwani/omnigocrm-wordpress
+ * Description: WordPress-native CRM for shared hosting: leads, contacts, companies, opportunities, tasks, products, WhatsApp and CRM activity.
+ * Version: 0.2.0
  * Author: Shivanshu Kesarwani
  * License: GPL-2.0-or-later
  * Text Domain: omnigocrm
@@ -11,7 +11,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('OMNIGOCRM_VERSION', '0.1.0');
+define('OMNIGOCRM_VERSION', '0.2.0');
 define('OMNIGOCRM_FILE', __FILE__);
 define('OMNIGOCRM_DIR', plugin_dir_path(__FILE__));
 define('OMNIGOCRM_URL', plugin_dir_url(__FILE__));
@@ -22,6 +22,9 @@ require_once OMNIGOCRM_DIR . 'includes/class-omnigocrm-rest.php';
 register_activation_hook(__FILE__, array('OmniGoCRM_DB', 'activate'));
 
 function omnigocrm_boot() {
+    if (get_option('omnigocrm_db_version') !== OMNIGOCRM_VERSION) {
+        OmniGoCRM_DB::activate();
+    }
     new OmniGoCRM_REST();
 }
 add_action('plugins_loaded', 'omnigocrm_boot');
@@ -50,7 +53,8 @@ function omnigocrm_assets($hook) {
     wp_localize_script('omnigocrm-admin', 'OmniGoCRMConfig', array(
         'restUrl' => esc_url_raw(rest_url('omnigocrm/v1')),
         'nonce' => wp_create_nonce('wp_rest'),
-        'adminUrl' => admin_url()
+        'adminUrl' => admin_url(),
+        'version' => OMNIGOCRM_VERSION
     ));
 }
 add_action('admin_enqueue_scripts', 'omnigocrm_assets');
