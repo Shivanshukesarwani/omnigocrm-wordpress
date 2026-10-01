@@ -11,11 +11,15 @@ class OmniGoCRM_REST {
     }
 
     private function permission() {
-        return current_user_can('read');
+        return current_user_can('omnigocrm_access') || current_user_can('manage_options');
     }
 
     private function manage_permission() {
-        return current_user_can('edit_posts');
+        return current_user_can('omnigocrm_manage') || current_user_can('manage_options');
+    }
+
+    private function delete_permission() {
+        return current_user_can('omnigocrm_delete') || current_user_can('manage_options');
     }
 
     private function admin_permission() {
@@ -23,7 +27,7 @@ class OmniGoCRM_REST {
     }
 
     private function role_permission() {
-        return current_user_can('edit_posts');
+        return current_user_can('omnigocrm_access') || current_user_can('manage_options');
     }
 
     private function clean($value) {
@@ -193,7 +197,7 @@ class OmniGoCRM_REST {
                 array('methods'=>'GET','callback'=>array($this,'resource_item'),'permission_callback'=>array($this,'permission')),
                 array('methods'=>'POST','callback'=>array($this,'update_resource'),'permission_callback'=>array($this,'manage_permission')),
                 array('methods'=>'PATCH','callback'=>array($this,'update_resource'),'permission_callback'=>array($this,'manage_permission')),
-                array('methods'=>'DELETE','callback'=>array($this,'delete_resource'),'permission_callback'=>array($this,'manage_permission'))
+                array('methods'=>'DELETE','callback'=>array($this,'delete_resource'),'permission_callback'=>array($this,'delete_permission'))
             ));
         }
 
@@ -254,6 +258,7 @@ class OmniGoCRM_REST {
         register_rest_route('omnigocrm/v1','/notifications/(?P<id>\d+)/read',array('methods'=>'POST','callback'=>array($this,'notification_read'),'permission_callback'=>array($this,'permission')));
         register_rest_route('omnigocrm/v1','/audit-logs',array('methods'=>'GET','callback'=>array($this,'audit_logs'),'permission_callback'=>array($this,'admin_permission')));
         register_rest_route('omnigocrm/v1','/users',array('methods'=>'GET','callback'=>array($this,'users'),'permission_callback'=>array($this,'role_permission')));
+        register_rest_route('omnigocrm/v1','/users',array('methods'=>'POST','callback'=>array($this,'create_user'),'permission_callback'=>array($this,'admin_permission')));
         register_rest_route('omnigocrm/v1','/settings',array(
             array('methods'=>'GET','callback'=>array($this,'settings'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'save_settings'),'permission_callback'=>array($this,'admin_permission'))
@@ -574,6 +579,20 @@ class OmniGoCRM_REST {
     public function users(){
         $users=get_users(array('fields'=>array('ID','display_name','user_email','roles')));
         return rest_ensure_response(array('data'=>array_map(function($u){return array('id'=>$u->ID,'name'=>$u->display_name,'email'=>$u->user_email,'roles'=>$u->roles);},$users)));
+    }
+
+    public function create_user($request){
+        $p=$request->get_json_params();
+        $email=sanitize_email($p['email']??'');$name=$this->clean($p['name']??'');$password=(string)($p['password']??wp_generate_password(16,true,true));$role=$this->clean($p['role']??'agent');
+        if(!$email||!is_email($email)||!$name)return new WP_Error('validation','Name and valid email are required.',array('status'=>400));
+        if(email_exists($email))return new WP_Error('exists','A user with this email already exists.',array('status'=>409));
+        $username=sanitize_user(current(explode('@',$email)),true);
+        if(username_exists($username))$username=$username.'_'.wp_rand(100,999);
+        $wp_role=array('owner'=>'administrator','admin'=>'administrator','manager'=>'omnigocrm_manager','agent'=>'omnigocrm_agent','viewer'=>'omnigocrm_viewer');
+        $user_id=wp_insert_user(array('user_login'=>$username,'user_email'=>$email,'display_name'=>$name,'user_pass'=>$password,'role'=>$wp_role[$role]??'omnigocrm_agent'));
+        if(is_wp_error($user_id))return $user_id;
+        $this->audit('create','user',$user_id,array('crm_role'=>$role));
+        return new WP_REST_Response(array('data'=>array('id'=>$user_id,'name'=>$name,'email'=>$email,'role'=>$role)),201);
     }
 
     public function settings(){
