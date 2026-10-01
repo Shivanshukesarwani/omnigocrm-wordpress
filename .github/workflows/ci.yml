@@ -1,0 +1,25 @@
+name: OmniGoCRM WordPress CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP lint
+        run: |
+          find . -name "*.php" -print0 | xargs -0 -n1 php -l
+      - name: JavaScript syntax check
+        run: node --check assets/admin.js
+      - name: Verify plugin structure
+        run: |
+          test -f omnigocrm.php
+          test -f includes/class-omnigocrm-db.php
+          test -f includes/class-omnigocrm-rest.php
+          test -f assets/admin.js
+          test -f assets/admin.css
