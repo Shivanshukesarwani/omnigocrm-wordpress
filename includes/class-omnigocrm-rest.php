@@ -272,6 +272,22 @@ class OmniGoCRM_REST {
         register_rest_route('omnigocrm/v1','/public/leads',array('methods'=>'POST','callback'=>array($this,'public_lead'),'permission_callback'=>'__return_true'));
     }
 
+    private function reconcile_invoice($invoice_id) {
+        global $wpdb;
+        if (!$invoice_id) return;
+        $invoice=$wpdb->get_row($wpdb->prepare("SELECT id,total,status FROM {$this->t['invoices']} WHERE id=%d",$invoice_id));
+        if(!$invoice)return;
+        $paid=(float)$wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(amount),0) FROM {$this->t['payments']} WHERE invoice_id=%d AND status='paid'",$invoice_id));
+        $total=(float)$invoice->total;
+        $status=$invoice->status;
+        $paid_at=null;
+        if($total>0 && $paid >= $total){$status='paid';$paid_at=current_time('mysql');}
+        elseif($paid>0){$status='partial';}
+        elseif(in_array($status,array('paid','partial'),true)){$status='sent';}
+        if($status==='paid')$wpdb->update($this->t['invoices'],array('status'=>$status,'paid_at'=>$paid_at,'updated_at'=>current_time('mysql')),array('id'=>$invoice_id));
+        else $wpdb->update($this->t['invoices'],array('status'=>$status,'updated_at'=>current_time('mysql')),array('id'=>$invoice_id));
+    }
+
     public function dashboard() {
         global $wpdb;
         $t=$this->t;
@@ -353,7 +369,9 @@ class OmniGoCRM_REST {
         if(!isset($data['updated_at']))$data['updated_at']=$now;
         $wpdb->insert($this->t[$cfg['table']],$data);
         if(!$wpdb->insert_id)return new WP_Error('db_error',$wpdb->last_error?:'Could not create record.',array('status'=>500));
-        $id=$wpdb->insert_id;$this->audit('create',$type,$id);
+        $id=$wpdb->insert_id;
+        if($type==='payments') $this->reconcile_invoice((int)($data['invoice_id']??0));
+        $this->audit('create',$type,$id);
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t[$cfg['table']]} WHERE id=%d",$id));
         return new WP_REST_Response(array('data'=>$row),201);
     }
@@ -637,8 +655,18 @@ class OmniGoCRM_REST {
     }
 
     public function public_lead($request){
-        global $wpdb;$p=$request->get_json_params();$first=$this->clean($p['first_name']??'');if(!$first)return new WP_Error('validation','First name is required.',array('status'=>400));
+        global $wpdb;
+        $p=$request->get_json_params();
+        if(!empty($p['website_url'])) return new WP_REST_Response(array('success'=>true),201);
+        $ip=isset($_SERVER['REMOTE_ADDR'])?sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])):'unknown';
+        $key='omnigocrm_public_lead_'.md5($ip);
+        $attempts=(int)get_transient($key);
+        if($attempts>=20)return new WP_Error('rate_limited','Too many lead submissions. Try again later.',array('status'=>429));
+        set_transient($key,$attempts+1,HOUR_IN_SECONDS);
+        $first=$this->clean($p['first_name']??'');if(!$first)return new WP_Error('validation','First name is required.',array('status'=>400));
         $now=current_time('mysql');$data=array('first_name'=>$first,'last_name'=>$this->clean($p['last_name']??''),'company'=>$this->clean($p['company']??''),'email'=>sanitize_email($p['email']??''),'phone'=>$this->clean($p['phone']??''),'source'=>$this->clean($p['source']??'website'),'status'=>'new','score'=>0,'created_at'=>$now,'updated_at'=>$now);
-        $wpdb->insert($this->t['leads'],$data);return new WP_REST_Response(array('success'=>true,'id'=>$wpdb->insert_id),201);
+        $wpdb->insert($this->t['leads'],$data);
+        if(!$wpdb->insert_id)return new WP_Error('db_error','Unable to save lead.',array('status'=>500));
+        return new WP_REST_Response(array('success'=>true,'id'=>$wpdb->insert_id),201);
     }
 }
