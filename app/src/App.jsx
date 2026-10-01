@@ -18,7 +18,7 @@ const nav = [
   ['dashboard','⌂','Dashboard'],['leads','◉','Leads'],['contacts','◌','Contacts'],['companies','▣','Companies'],
   ['opportunities','◆','Opportunities'],['quotes','▤','Quotes'],['orders','▥','Orders'],['invoices','▦','Invoices'],
   ['products','◇','Products'],['tasks','✓','Tasks'],['conversations','◍','Inbox'],['campaigns','✦','Campaigns'],
-  ['automations','⚙','Automation'],['reports','▥','Reports'],['settings','☷','Settings']
+  ['automations','⚙','Automation'],['calendar','◷','Calendar'],['notifications','●','Notifications'],['billing','₹','Billing'],['integrations','⌘','Integrations'],['audit','≡','Audit Log'],['settings','☷','Settings']
 ];
 
 const resources = {
@@ -119,6 +119,40 @@ function Inbox(){
   <section className="panel thread-panel">{active?<><div className="thread-head"><h3>Conversation #{active}</h3><span>Messages</span></div><div className="messages">{messages.map((m,i)=><div className={'msg '+(m.direction==='outbound'?'outbound':'')} key={m.id||i}>{m.body||m.message}<small>{m.created_at||''}</small></div>)}</div><div className="composer-bottom"><textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Write a message…"/><Button kind="primary" onClick={send}>Send</Button></div></>:<div className="empty">Select a conversation.</div>}</section></div></>
 }
 
+function Calendar(){
+  const [rows,setRows]=useState([]);
+  useEffect(()=>api('/calendar').then(r=>setRows(r.data||r)).catch(()=>setRows([])),[]);
+  return <><PageHead title="Calendar" desc="Tasks, calls and scheduled CRM activity."/><section className="panel"><div className="calendar-list">{rows.map((x,i)=><div className="calendar-item" key={x.id||i}><div className="calendar-date">{String(x.date||x.due_date||x.start||'—').slice(0,10)}</div><div><b>{x.title||x.subject||x.type||'Activity'}</b><small>{x.status||x.description||''}</small></div></div>)}{!rows.length&&<div className="empty">No scheduled activity found.</div>}</div></section></>
+}
+
+function Notifications(){
+  const [rows,setRows]=useState([]);
+  const load=()=>api('/notifications').then(r=>setRows(r.data||r)).catch(()=>setRows([]));
+  useEffect(load,[]);
+  const read=async id=>{await api('/notifications/'+id+'/read',{method:'POST'});load()};
+  return <><PageHead title="Notifications" desc="CRM alerts and workflow activity."/><section className="panel">{rows.map(x=><div className={'notification '+(x.read_at?'read':'')} key={x.id}><div><b>{x.title}</b><p>{x.body||''}</p><small>{x.created_at||''}</small></div>{!x.read_at&&<Button onClick={()=>read(x.id)}>Mark read</Button>}</div>)}{!rows.length&&<div className="empty">No notifications.</div>}</section></>
+}
+
+function Billing(){
+  const [plans,setPlans]=useState([]),[sub,setSub]=useState(null);
+  useEffect(()=>{Promise.all([api('/plans'),api('/subscription')]).then(([p,s])=>{setPlans(p.data||p);setSub(s.data||s)}).catch(()=>{})},[]);
+  const choose=async id=>{await api('/subscription',{method:'POST',body:JSON.stringify({plan_id:id})});setSub({plan_id:id})};
+  return <><PageHead title="Billing" desc="Plans and workspace subscription."/><div className="billing-grid">{plans.map(p=><div className="panel plan-card" key={p.id}><h3>{p.name}</h3><strong>{p.currency||'INR'} {money(p.price)}</strong><p>{p.description||'CRM workspace plan'}</p><Button kind={String(sub?.plan_id)===String(p.id)?'primary':'ghost'} onClick={()=>choose(p.id)}>{String(sub?.plan_id)===String(p.id)?'Current plan':'Select plan'}</Button></div>)}{!plans.length&&<div className="panel empty">No plans configured.</div>}</div></>
+}
+
+function Integrations(){
+  const [rows,setRows]=useState([]),[modal,setModal]=useState(false);
+  const load=()=>api('/integrations').then(r=>setRows(r.data||r)).catch(()=>setRows([])); useEffect(load,[]);
+  const save=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await api('/integrations',{method:'POST',body:JSON.stringify({name:f.get('name'),type:f.get('type'),status:'configured',config:{}})});setModal(false);load()};
+  return <><PageHead title="Integrations" desc="Connect channels and external services to the CRM." onAdd={()=>setModal(true)} addLabel="Add integration"/><section className="panel">{rows.map(x=><div className="integration-row" key={x.id}><div><b>{x.name}</b><small>{x.type} · {x.status}</small></div></div>)}{!rows.length&&<div className="empty">No integrations configured.</div>}</section>{modal&&<div className="modal-back"><form className="modal" onSubmit={save}><button className="close" type="button" onClick={()=>setModal(false)}>×</button><h2>Add integration</h2><label className="stack">Name<input name="name" required/></label><label className="stack">Type<input name="type" placeholder="whatsapp, email, sms..." required/></label><div className="modal-actions"><Button type="button" onClick={()=>setModal(false)}>Cancel</Button><Button kind="primary" type="submit">Save</Button></div></form></div>}</>
+}
+
+function Audit(){
+  const [rows,setRows]=useState([]);
+  useEffect(()=>api('/audit-logs').then(r=>setRows(r.data||r)).catch(()=>setRows([])),[]);
+  return <><PageHead title="Audit Log" desc="Track changes and actions performed in the CRM."/><section className="panel table-panel"><table><thead><tr><th>Action</th><th>Object</th><th>ID</th><th>User</th><th>Date</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{x.action}</td><td>{x.object_type}</td><td>{x.object_id}</td><td>{x.user_id}</td><td>{x.created_at}</td></tr>)}</tbody></table>{!rows.length&&<div className="empty">No audit events.</div>}</section></section></>
+}
+
 function Reports(){
   const [data,setData]=useState({});
   useEffect(()=>api('/reports/summary').then(setData).catch(()=>{}),[]);
@@ -144,6 +178,6 @@ function TagSettings(){const [rows,setRows]=useState([]);useEffect(()=>api('/tag
 
 export default function App(){
   const [page,setPage]=useState('dashboard');
-  const content=page==='dashboard'?<Dashboard go={setPage}/>:page==='conversations'?<Inbox/>:page==='reports'?<Reports/>:page==='settings'?<Settings/>:resources[page]?<ResourcePage type={page}/>:<div className="panel empty">This workspace module is being connected to the React API.</div>;
+  const content=page==='dashboard'?<Dashboard go={setPage}/>:page==='conversations'?<Inbox/>:page==='reports'?<Reports/>:page==='calendar'?<Calendar/>:page==='notifications'?<Notifications/>:page==='billing'?<Billing/>:page==='integrations'?<Integrations/>:page==='audit'?<Audit/>:page==='settings'?<Settings/>:resources[page]?<ResourcePage type={page}/>:<div className="panel empty">This workspace module is being connected to the React API.</div>;
   return <Shell page={page} setPage={setPage}>{content}</Shell>;
 }
