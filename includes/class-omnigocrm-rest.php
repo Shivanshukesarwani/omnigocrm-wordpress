@@ -201,6 +201,7 @@ class OmniGoCRM_REST {
             ));
         }
 
+        register_rest_route('omnigocrm/v1','/leads/(?P<id>\d+)/convert',array('methods'=>'POST','callback'=>array($this,'convert_lead'),'permission_callback'=>array($this,'manage_permission')));
         register_rest_route('omnigocrm/v1','/leads/(?P<id>\d+)/whatsapp/prepare',array('methods'=>'POST','callback'=>array($this,'whatsapp'),'permission_callback'=>array($this,'manage_permission')));
         register_rest_route('omnigocrm/v1','/whatsapp/templates',array(
             array('methods'=>'GET','callback'=>array($this,'templates'),'permission_callback'=>array($this,'permission')),
