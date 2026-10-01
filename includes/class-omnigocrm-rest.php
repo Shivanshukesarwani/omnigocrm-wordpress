@@ -242,6 +242,8 @@ class OmniGoCRM_REST {
             array('methods'=>'POST','callback'=>array($this,'create_stage'),'permission_callback'=>array($this,'manage_permission'))
         ));
 
+        register_rest_route('omnigocrm/v1','/quotes/(?P<id>\d+)/convert-order',array('methods'=>'POST','callback'=>array($this,'quote_to_order'),'permission_callback'=>array($this,'manage_permission')));
+        register_rest_route('omnigocrm/v1','/orders/(?P<id>\d+)/create-invoice',array('methods'=>'POST','callback'=>array($this,'order_to_invoice'),'permission_callback'=>array($this,'manage_permission')));
         register_rest_route('omnigocrm/v1','/quotes/(?P<id>\d+)/items',array(
             array('methods'=>'GET','callback'=>array($this,'quote_items'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'add_quote_item'),'permission_callback'=>array($this,'manage_permission'))
@@ -563,6 +565,42 @@ class OmniGoCRM_REST {
         $subtotal=0;$tax=0;
         foreach($rows as $r){$line=(float)$r->quantity*(float)$r->unit_price;$line_tax=$line*((float)$r->tax_rate/100);$subtotal+=$line;$tax+=$line_tax;$wpdb->update($items_table,array('total'=>$line+$line_tax),array($fk=>$id));}
         $wpdb->update($parent_table,array('subtotal'=>$subtotal,'tax_total'=>$tax,'total'=>$subtotal+$tax,'updated_at'=>current_time('mysql')),array('id'=>$id));
+    }
+
+    public function quote_to_order($request){
+        global $wpdb;
+        $quote_id=(int)$request['id'];
+        $quote=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['quotes']} WHERE id=%d",$quote_id));
+        if(!$quote)return new WP_Error('not_found','Quote not found.',array('status'=>404));
+        $now=current_time('mysql');
+        $existing=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['orders']} WHERE quote_id=%d LIMIT 1",$quote_id));
+        if($existing)return rest_ensure_response(array('success'=>true,'order_id'=>(int)$existing,'existing'=>true));
+        $number='ORD-'.date('Ymd').'-'.$quote_id;
+        $wpdb->insert($this->t['orders'],array('order_number'=>$number,'quote_id'=>$quote_id,'company_id'=>$quote->company_id,'contact_id'=>$quote->contact_id,'status'=>'pending','currency'=>$quote->currency,'subtotal'=>$quote->subtotal,'tax_total'=>$quote->tax_total,'total'=>$quote->total,'notes'=>$quote->notes,'created_by'=>get_current_user_id(),'created_at'=>$now,'updated_at'=>$now));
+        if(!$wpdb->insert_id)return new WP_Error('db_error',$wpdb->last_error?:'Could not create order.',array('status'=>500));
+        $order_id=$wpdb->insert_id;
+        $items=$wpdb->get_results($wpdb->prepare("SELECT product_id,description,quantity,unit_price,tax_rate,total FROM {$this->t['quote_items']} WHERE quote_id=%d",$quote_id));
+        foreach($items as $item)$wpdb->insert($this->t['order_items'],array('order_id'=>$order_id,'product_id'=>$item->product_id,'description'=>$item->description,'quantity'=>$item->quantity,'unit_price'=>$item->unit_price,'tax_rate'=>$item->tax_rate,'total'=>$item->total));
+        $wpdb->update($this->t['quotes'],array('status'=>'accepted','updated_at'=>$now),array('id'=>$quote_id));
+        $this->audit('convert','quote',$quote_id,array('order_id'=>$order_id));
+        return new WP_REST_Response(array('success'=>true,'order_id'=>$order_id),201);
+    }
+
+    public function order_to_invoice($request){
+        global $wpdb;
+        $order_id=(int)$request['id'];
+        $order=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['orders']} WHERE id=%d",$order_id));
+        if(!$order)return new WP_Error('not_found','Order not found.',array('status'=>404));
+        $now=current_time('mysql');
+        $existing=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['invoices']} WHERE order_id=%d LIMIT 1",$order_id));
+        if($existing)return rest_ensure_response(array('success'=>true,'invoice_id'=>(int)$existing,'existing'=>true));
+        $number='INV-'.date('Ymd').'-'.$order_id;
+        $wpdb->insert($this->t['invoices'],array('invoice_number'=>$number,'order_id'=>$order_id,'company_id'=>$order->company_id,'status'=>'draft','currency'=>$order->currency,'subtotal'=>$order->subtotal,'tax_total'=>$order->tax_total,'total'=>$order->total,'due_date'=>date('Y-m-d',strtotime('+30 days')),'created_at'=>$now,'updated_at'=>$now));
+        if(!$wpdb->insert_id)return new WP_Error('db_error',$wpdb->last_error?:'Could not create invoice.',array('status'=>500));
+        $invoice_id=$wpdb->insert_id;
+        $wpdb->update($this->t['orders'],array('status'=>'confirmed','updated_at'=>$now),array('id'=>$order_id));
+        $this->audit('convert','order',$order_id,array('invoice_id'=>$invoice_id));
+        return new WP_REST_Response(array('success'=>true,'invoice_id'=>$invoice_id),201);
     }
 
     public function quote_items($request){global $wpdb;return rest_ensure_response(array('data'=>$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['quote_items']} WHERE quote_id=%d ORDER BY id",(int)$request['id']))));}
