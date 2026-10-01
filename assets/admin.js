@@ -392,7 +392,7 @@ async function renderSettings(){
 function settingsGeneral(){var s=state.settings||{};return '<form id="settings-form"><div class="panel"><h3>General</h3><div class="form-grid">'+fieldControl(['business_name','Business name','text'],s.business_name)+fieldControl(['currency','Currency','text'],s.currency)+fieldControl(['timezone','Timezone','text'],s.timezone)+fieldControl(['lead_default_status','Default lead status','text'],s.lead_default_status)+fieldControl(['company_website','Website','url'],s.company_website)+fieldControl(['whatsapp_default_template','Default WhatsApp template','text'],s.whatsapp_default_template)+fieldControl(['notifications','Notifications','checkbox'],s.notifications)+'</div></div></form>';}
 function settingsTab(t){
  if(t==='General')return settingsGeneral();
- if(t==='Users')return '<div class="panel"><div class="card-title"><h3>WordPress CRM Users</h3></div><table><thead><tr><th>Name</th><th>Email</th><th>Roles</th></tr></thead><tbody>'+state.users.map(function(u){return '<tr><td>'+esc(u.name)+'</td><td>'+esc(u.email)+'</td><td>'+esc((u.roles||[]).join(', '))+'</td></tr>';}).join('')+'</tbody></table></div>';
+ if(t==='Users')return '<div class="panel"><div class="card-title"><h3>WordPress CRM Users</h3><button class="primary small" id="add-user">＋ Add user</button></div><table><thead><tr><th>Name</th><th>Email</th><th>Roles</th></tr></thead><tbody>'+state.users.map(function(u){return '<tr><td>'+esc(u.name)+'</td><td>'+esc(u.email)+'</td><td>'+esc((u.roles||[]).join(', '))+'</td></tr>';}).join('')+'</tbody></table></div>';
  if(t==='Integrations')return '<div class="panel"><div class="card-title"><h3>Integrations</h3><button class="primary small" id="add-integration">＋ Add</button></div><table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Config</th></tr></thead><tbody>'+state.integrations.map(function(x){return '<tr><td>'+esc(x.name)+'</td><td>'+esc(x.type)+'</td><td>'+esc(title(x.status))+'</td><td>'+esc(x.config||'{}')+'</td></tr>';}).join('')+'</tbody></table></div>';
  if(t==='Templates')return '<div class="panel"><div class="card-title"><h3>WhatsApp / SMS / Email Templates</h3><button class="primary small" id="add-template">＋ Add template</button></div><div id="templates-manage"><div class="loading">Loading…</div></div></div>';
  if(t==='Media')return '<div class="panel"><div class="card-title"><h3>Media Assets</h3><button class="primary small" id="add-media">＋ Add media</button></div><div id="media-manage"><div class="loading">Loading…</div></div></div>';
@@ -403,6 +403,7 @@ function settingsTab(t){
  return '';
 }
 async function bindSettingsTab(t){
+ if(t==='Users'){var au=document.getElementById('add-user');if(au)au.onclick=async function(){var name=prompt('Name');var email=prompt('Email');var password=prompt('Temporary password (min 8 characters)');var role=prompt('CRM role: owner, admin, manager, agent or viewer','agent');if(name&&email&&password){await api('/users',{method:'POST',body:JSON.stringify({name:name,email:email,password:password,role:role||'agent'})});renderSettings();}};}
  if(t==='Integrations')document.getElementById('add-integration').onclick=function(){openResourceForm('integrations');};
  if(t==='Templates')loadTemplateManage();
  if(t==='Media')loadMediaManage();
