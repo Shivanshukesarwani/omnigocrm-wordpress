@@ -3,7 +3,7 @@
  * Plugin Name: OmniGoCRM
  * Plugin URI: https://github.com/ShivanshuKesarwani/omnigocrm-wordpress
  * Description: Full WordPress-native CRM and sales workspace with leads, contacts, companies, pipeline, quotes, orders, invoices, payments, omnichannel conversations, automation, reports and settings.
- * Version: 0.3.0
+ * Version: 0.4.0
  * Author: Shivanshu Kesarwani
  * License: GPL-2.0-or-later
  * Text Domain: omnigocrm
@@ -11,7 +11,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('OMNIGOCRM_VERSION', '0.3.0');
+define('OMNIGOCRM_VERSION', '0.4.0');
 define('OMNIGOCRM_FILE', __FILE__);
 define('OMNIGOCRM_DIR', plugin_dir_path(__FILE__));
 define('OMNIGOCRM_URL', plugin_dir_url(__FILE__));
