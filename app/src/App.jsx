@@ -85,7 +85,30 @@ function Dashboard({go}) {
   </>
 }
 
-function ResourcePage({type}) {
+function LeadDetail({leadId, onBack}) {
+  const [lead,setLead]=useState(null), [tab,setTab]=useState('overview'), [notes,setNotes]=useState([]), [tasks,setTasks]=useState([]), [templates,setTemplates]=useState([]), [message,setMessage]=useState(''), [busy,setBusy]=useState(false), [notice,setNotice]=useState('');
+  const load=async()=>{try{const [l,n,t,tm]=await Promise.all([api('/leads/'+leadId),api('/notes'),api('/tasks'),api('/whatsapp/templates')]);setLead(l.data||l);setNotes((n.data||n).filter(x=>String(x.lead_id||'')===String(leadId)||String(x.related_id||'')===String(leadId)));setTasks((t.data||t).filter(x=>String(x.related_id||'')===String(leadId)));setTemplates(tm.data||tm)}catch(e){setNotice(e.message)}};
+  useEffect(()=>{load()},[leadId]);
+  if(!lead)return <><PageHead title="Lead" desc="Loading lead record…"/><div className="panel empty">{notice||'Loading…'}</div></>;
+  const sendWhatsApp=async()=>{if(!message.trim())return;setBusy(true);try{const r=await api('/leads/'+leadId+'/whatsapp/prepare',{method:'POST',body:JSON.stringify({body:message,template_id:0})});setNotice('WhatsApp message prepared. Open WhatsApp to send it.');if(r.whatsapp_url)window.open(r.whatsapp_url,'_blank')}catch(e){setNotice(e.message)}finally{setBusy(false)}};
+  const convert=async()=>{setBusy(true);try{const r=await api('/leads/'+leadId+'/convert',{method:'POST',body:'{}'});setNotice('Lead converted successfully. Contact #'+r.contact_id+(r.opportunity_id?' · Opportunity #'+r.opportunity_id:''));load()}catch(e){setNotice(e.message)}finally{setBusy(false)}};
+  const addNote=async()=>{const body=window.prompt('Note for this lead:');if(!body)return;await api('/notes',{method:'POST',body:JSON.stringify({body,lead_id:leadId,related_type:'lead',related_id:leadId,created_by:cfg.userId||0})});load()};
+  const addTask=async()=>{const title=window.prompt('Task title:');if(!title)return;await api('/tasks',{method:'POST',body:JSON.stringify({title,status:'open',priority:'normal',related_type:'lead',related_id:leadId,assigned_to:cfg.userId||0})});load()};
+  return <><PageHead title={[lead.first_name,lead.last_name].filter(Boolean).join(' ')||'Lead'} desc={lead.company||lead.email||'Lead record'} />
+    <div className="lead-toolbar"><Button onClick={onBack}>← Back to leads</Button><div><Button onClick={addNote}>＋ Note</Button><Button onClick={addTask}>＋ Task</Button><Button kind="primary" onClick={convert} disabled={busy}>Convert lead</Button></div></div>
+    {notice&&<div className="og-notice">{notice}</div>}
+    <div className="lead-summary panel"><div className="big-avatar">{initials(lead.first_name,lead.last_name)}</div><div><h2>{lead.first_name} {lead.last_name}</h2><p>{lead.job_title||'Prospect'} · {lead.company||'No company'}</p></div><div className="lead-facts"><span><small>Status</small><b>{lead.status||'new'}</b></span><span><small>Score</small><b>{lead.score||0}</b></span><span><small>Value</small><b>{money(lead.value)}</b></span></div></div>
+    <div className="detail-tabs">{['overview','activity','whatsapp','notes','tasks','related'].map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{labels(x)}</button>)}</div>
+    {tab==='overview'&&<section className="panel detail-grid"><div><h3>Contact information</h3>{[['Email',lead.email],['Phone',lead.phone],['Website',lead.website],['Location',lead.location],['Industry',lead.industry],['Source',lead.source]].map(([k,v])=><div className="detail-line" key={k}><small>{k}</small><span>{v||'—'}</span></div>)}</div><div><h3>Lead notes</h3><p>{lead.notes||'No lead notes yet.'}</p></div></section>}
+    {tab==='activity'&&<section className="panel"><h3>Recent activity</h3><div className="timeline"><div>Lead created <small>{lead.created_at||''}</small></div><div>Status: <b>{lead.status||'new'}</b><small>{lead.updated_at||''}</small></div>{notes.slice(0,5).map(n=><div key={n.id}>Note added <small>{n.created_at||''}</small><p>{n.body}</p></div>)}</div></section>}
+    {tab==='whatsapp'&&<section className="panel"><h3>WhatsApp</h3><p>Prepare a message using the CRM WhatsApp workflow.</p><div className="form-grid"><label>Template<select onChange={e=>{const t=templates.find(x=>String(x.id)===e.target.value);if(t)setMessage(t.body)}}><option value="">Custom message</option>{templates.map(t=><option value={t.id} key={t.id}>{t.name}</option>)}</select></label></div><textarea className="wa-compose" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Write your WhatsApp message…"/><div className="modal-actions"><Button kind="primary" onClick={sendWhatsApp} disabled={busy}>Prepare WhatsApp</Button></div></section>}
+    {tab==='notes'&&<section className="panel"><div className="panel-head"><h3>Notes</h3><Button onClick={addNote}>＋ Add note</Button></div>{notes.map(n=><div className="note-row" key={n.id}><b>{n.created_at||'Note'}</b><span>{n.body}</span></div>)}{!notes.length&&<div className="empty">No notes for this lead.</div>}</section>}
+    {tab==='tasks'&&<section className="panel"><div className="panel-head"><h3>Tasks</h3><Button onClick={addTask}>＋ Add task</Button></div>{tasks.map(t=><div className="note-row" key={t.id}><b>{t.title}</b><span>{t.status} · {t.priority} · {t.due_date||'No due date'}</span></div>)}{!tasks.length&&<div className="empty">No tasks linked to this lead.</div>}</section>}
+    {tab==='related'&&<section className="panel"><h3>Related records</h3><div className="snapshot"><div><small>Company</small><b>{lead.company||'—'}</b></div><div><small>Contact</small><b>Created on conversion</b></div><div><small>Opportunity</small><b>{lead.value?'Potential opportunity':'Not yet created'}</b></div></div></section>}
+  </>;
+}
+
+function ResourcePage({type,onSelect}) {
   const meta=resources[type], [rows,setRows]=useState([]), [loading,setLoading]=useState(true), [error,setError]=useState(''), [q,setQ]=useState(''), [selected,setSelected]=useState(null), [modal,setModal]=useState(false);
   const load=()=>{setLoading(true);api(meta.endpoint).then(r=>setRows(Array.isArray(r)?r:(r.data||r.items||[]))).catch(e=>setError(e.message)).finally(()=>setLoading(false))};
   useEffect(load,[]);
@@ -95,7 +118,7 @@ function ResourcePage({type}) {
     <div className="toolbar-card"><div className="table-search">⌕<input value={q} onChange={e=>setQ(e.target.value)} placeholder={'Search '+meta.title.toLowerCase()}/></div><span className="result-count">{filtered.length} records</span></div>
     {error&&<div className="og-error">{error}</div>}
     <section className="panel table-panel">{loading?<div className="empty">Loading…</div>:!filtered.length?<div className="empty">No records yet. Create the first one.</div>:
-      <table><thead><tr>{meta.fields.slice(0,7).map(f=><th key={f}>{labels(f)}</th>)}</tr></thead><tbody>{filtered.map((r,i)=><tr key={r.id||i} onClick={()=>setSelected(r)}>{meta.fields.slice(0,7).map(f=><td key={f}>{f==='price'||f==='amount'||f==='total'||f==='value'?money(r[f]):f==='active'?<span className="badge">{r[f]?'Active':'Inactive'}</span>:String(r[f]??'—')}</td>)}</tr>)}</tbody></table>}
+      <table><thead><tr>{meta.fields.slice(0,7).map(f=><th key={f}>{labels(f)}</th>)}</tr></thead><tbody>{filtered.map((r,i)=><tr key={r.id||i} onClick={()=>{setSelected(r);if(onSelect)onSelect(r.id) }}>{meta.fields.slice(0,7).map(f=><td key={f}>{f==='price'||f==='amount'||f==='total'||f==='value'?money(r[f]):f==='active'?<span className="badge">{r[f]?'Active':'Inactive'}</span>:String(r[f]??'—')}</td>)}</tr>)}</tbody></table>}
     </section>
     {selected&&<div className="side-detail"><div className="detail-top"><button className="close" onClick={()=>setSelected(null)}>×</button><div className="detail-person"><div className="big-avatar">{initials(selected.first_name,selected.last_name||selected.name)}</div><div><h2>{selected.name||[selected.first_name,selected.last_name].filter(Boolean).join(' ')}</h2><p>{selected.email||selected.company||selected.status||'CRM record'}</p></div></div></div><div className="detail-body"><div className="detail-card"><h3>Record details</h3>{Object.entries(selected).filter(([k])=>!['id','created_at','updated_at'].includes(k)).slice(0,14).map(([k,v])=><div className="detail-line" key={k}><small>{labels(k)}</small><span>{typeof v==='object'?JSON.stringify(v):String(v??'—')}</span></div>)}</div></div></div>}
     {modal&&<RecordModal title={'Create '+meta.title.replace(/s$/,'')} fields={meta.fields} onClose={()=>setModal(false)} onSave={create}/>}
@@ -178,6 +201,7 @@ function TagSettings(){const [rows,setRows]=useState([]);useEffect(()=>api('/tag
 
 export default function App(){
   const [page,setPage]=useState('dashboard');
-  const content=page==='dashboard'?<Dashboard go={setPage}/>:page==='conversations'?<Inbox/>:page==='reports'?<Reports/>:page==='calendar'?<Calendar/>:page==='notifications'?<Notifications/>:page==='billing'?<Billing/>:page==='integrations'?<Integrations/>:page==='audit'?<Audit/>:page==='settings'?<Settings/>:resources[page]?<ResourcePage type={page}/>:<div className="panel empty">This workspace module is being connected to the React API.</div>;
+  const [leadId,setLeadId]=useState(null);
+  const content=leadId?<LeadDetail leadId={leadId} onBack={()=>setLeadId(null)}/>:page==='dashboard'?<Dashboard go={setPage}/>:page==='conversations'?<Inbox/>:page==='reports'?<Reports/>:page==='calendar'?<Calendar/>:page==='notifications'?<Notifications/>:page==='billing'?<Billing/>:page==='integrations'?<Integrations/>:page==='audit'?<Audit/>:page==='settings'?<Settings/>:resources[page]?<ResourcePage type={page} onSelect={page==='leads'?setLeadId:undefined}/>:<div className="panel empty">This workspace module is being connected to the React API.</div>;
   return <Shell page={page} setPage={setPage}>{content}</Shell>;
 }
