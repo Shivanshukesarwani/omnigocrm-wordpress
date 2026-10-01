@@ -481,6 +481,24 @@ class OmniGoCRM_DB {
             dbDelta($statement);
         }
 
+        // Mirror SaaS team roles with WordPress-native roles/capabilities.
+        $role_caps = array(
+            'omnigocrm_manager' => array('read'=>true,'omnigocrm_access'=>true,'omnigocrm_manage'=>true,'omnigocrm_delete'=>true),
+            'omnigocrm_agent' => array('read'=>true,'omnigocrm_access'=>true,'omnigocrm_manage'=>true),
+            'omnigocrm_viewer' => array('read'=>true,'omnigocrm_access'=>true)
+        );
+        foreach ($role_caps as $role_name => $caps) {
+            add_role($role_name, ucwords(str_replace('omnigocrm_','',$role_name)), $caps);
+        }
+        foreach (array('administrator','editor') as $role_name) {
+            $role = get_role($role_name);
+            if ($role) {
+                $role->add_cap('omnigocrm_access');
+                $role->add_cap('omnigocrm_manage');
+                $role->add_cap('omnigocrm_delete');
+            }
+        }
+
         $now = current_time('mysql');
 
         $defaults = array(
