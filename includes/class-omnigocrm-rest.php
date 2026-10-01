@@ -224,6 +224,11 @@ class OmniGoCRM_REST {
             array('methods'=>'POST','callback'=>array($this,'create_message'),'permission_callback'=>array($this,'manage_permission'))
         ));
 
+        register_rest_route('omnigocrm/v1','/tags',array(
+            array('methods'=>'GET','callback'=>array($this,'tags'),'permission_callback'=>array($this,'permission')),
+            array('methods'=>'POST','callback'=>array($this,'create_tag'),'permission_callback'=>array($this,'manage_permission'))
+        ));
+        register_rest_route('omnigocrm/v1','/tags/(?P<id>\\d+)',array('methods'=>'DELETE','callback'=>array($this,'delete_tag'),'permission_callback'=>array($this,'manage_permission')));
         register_rest_route('omnigocrm/v1','/pipelines',array(
             array('methods'=>'GET','callback'=>array($this,'pipelines'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'create_pipeline'),'permission_callback'=>array($this,'manage_permission'))
@@ -494,6 +499,18 @@ class OmniGoCRM_REST {
         $this->audit('create','message',$wpdb->insert_id);$wpdb->update($this->t['conversations'],array('last_message'=>$body,'last_message_at'=>$now,'updated_at'=>$now),array('id'=>$id));
         return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['messages']} WHERE id=%d",$wpdb->insert_id))),201);
     }
+
+    public function tags(){global $wpdb;return rest_ensure_response(array('data'=>$wpdb->get_results("SELECT * FROM {$this->t['tags']} ORDER BY name")));}
+
+    public function create_tag($request){
+        global $wpdb;$p=$request->get_json_params();$name=$this->clean($p['name']??'');
+        if(!$name)return new WP_Error('validation','Tag name is required.',array('status'=>400));
+        $now=current_time('mysql');$wpdb->insert($this->t['tags'],array('name'=>$name,'color'=>$this->clean($p['color']??''),'created_at'=>$now));
+        if(!$wpdb->insert_id)return new WP_Error('db_error',$wpdb->last_error?:'Could not create tag.',array('status'=>500));
+        $this->audit('create','tag',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['tags']} WHERE id=%d",$wpdb->insert_id))),201);
+    }
+
+    public function delete_tag($request){global $wpdb;$id=(int)$request['id'];$wpdb->delete($this->t['entity_tags'],array('tag_id'=>$id));$wpdb->delete($this->t['tags'],array('id'=>$id));$this->audit('delete','tag',$id);return rest_ensure_response(array('success'=>true));}
 
     public function pipelines() {
         global $wpdb;$pipes=$wpdb->get_results("SELECT * FROM {$this->t['pipelines']} ORDER BY is_default DESC,name");
