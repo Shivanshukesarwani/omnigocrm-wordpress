@@ -312,7 +312,7 @@ function openResourceForm(type,initial){
 }
 function resourcePanel(type,row){
   var cfg=resourceMap[type];var cols=cfg.fields.slice(0,6);
-  return '<aside class="side-detail"><div class="detail-top"><button class="close" id="close-resource">×</button><span class="eyebrow">'+esc(cfg.singular.toUpperCase())+'</span><h2>'+esc(row.name||row.title||row.quote_number||row.order_number||row.invoice_number||cfg.singular+' #'+row.id)+'</h2><div class="detail-actions"><button class="ghost" id="edit-resource">✎ Edit</button><button class="danger" id="delete-resource">Delete</button></div></div><div class="detail-body">'+detailCard(cfg.label,cols.map(function(f){return [f[1],resourceValue(type,row,f[0])];}))+
+  return '<aside class="side-detail"><div class="detail-top"><button class="close" id="close-resource">×</button><span class="eyebrow">'+esc(cfg.singular.toUpperCase())+'</span><h2>'+esc(row.name||row.title||row.quote_number||row.order_number||row.invoice_number||cfg.singular+' #'+row.id)+'</h2><div class="detail-actions"><button class="ghost" id="edit-resource">✎ Edit</button>'+((type==='quotes')?'<button class="primary" id="quote-to-order">Create Order</button>':'')+((type==='orders')?'<button class="primary" id="order-to-invoice">Create Invoice</button>':'')+'<button class="danger" id="delete-resource">Delete</button></div></div><div class="detail-body">'+detailCard(cfg.label,cols.map(function(f){return [f[1],resourceValue(type,row,f[0])];}))+
   ((type==='quotes'||type==='orders')?lineItems(type,row.id):type==='invoices'?invoicePayments(row.id):'')+'</div></aside>';
 }
 function openResourcePanel(type,row){
@@ -321,6 +321,8 @@ function openResourcePanel(type,row){
   document.getElementById('close-resource').onclick=function(){state.selected=null;state.selectedType=null;renderResource(type);};
   document.getElementById('edit-resource').onclick=function(){openResourceForm(type,row);};
   document.getElementById('delete-resource').onclick=async function(){if(confirm('Delete this record?')){await api('/'+type+'/'+row.id,{method:'DELETE'});state.selected=null;renderResource(type);}};
+  if(type==='quotes'){var qto=document.getElementById('quote-to-order');if(qto)qto.onclick=async function(){var r=await api('/quotes/'+row.id+'/convert-order',{method:'POST',body:'{}'});state.notice='Order created #'+r.order_id;state.view='orders';state.search='';render();};}
+  if(type==='orders'){var oti=document.getElementById('order-to-invoice');if(oti)oti.onclick=async function(){var r=await api('/orders/'+row.id+'/create-invoice',{method:'POST',body:'{}'});state.notice='Invoice created #'+r.invoice_id;state.view='invoices';state.search='';render();};}
   if(type==='quotes'||type==='orders')loadLineItems(type,row.id);
   if(type==='invoices')loadInvoicePayments(row.id);
 }
