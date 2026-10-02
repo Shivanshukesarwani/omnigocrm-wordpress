@@ -371,6 +371,12 @@ class OmniGoCRM_REST {
         $input=$request->get_json_params(); if(!is_array($input))$input=array();
         $data=$this->sanitize_data($type,$input,false);if(is_wp_error($data))return $data;
         if($type==='leads' && empty($data['source']))$data['source']='manual';
+        if($type==='quotes' && !empty($data['company_id']) && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['companies']} WHERE id=%d",(int)$data['company_id'])))return new WP_Error('not_found','Company not found.',array('status'=>404));
+        if($type==='quotes' && !empty($data['contact_id']) && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['contacts']} WHERE id=%d",(int)$data['contact_id'])))return new WP_Error('not_found','Contact not found.',array('status'=>404));
+        if($type==='orders' && !empty($data['quote_id']) && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['quotes']} WHERE id=%d",(int)$data['quote_id'])))return new WP_Error('not_found','Quote not found.',array('status'=>404));
+        if($type==='orders' && !empty($data['company_id']) && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['companies']} WHERE id=%d",(int)$data['company_id'])))return new WP_Error('not_found','Company not found.',array('status'=>404));
+        if($type==='orders' && !empty($data['contact_id']) && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['contacts']} WHERE id=%d",(int)$data['contact_id'])))return new WP_Error('not_found','Contact not found.',array('status'=>404));
+        if($type==='invoices' && !empty($data['order_id']) && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['orders']} WHERE id=%d",(int)$data['order_id'])))return new WP_Error('not_found','Order not found.',array('status'=>404));
         if($type==='payments' && !empty($data['invoice_id'])){
             $invoice_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['invoices']} WHERE id=%d",(int)$data['invoice_id']));
             if(!$invoice_exists)return new WP_Error('not_found','Invoice not found.',array('status'=>404));
