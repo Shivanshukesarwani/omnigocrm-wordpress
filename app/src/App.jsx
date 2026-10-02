@@ -18,7 +18,7 @@ async function api(path, options = {}) {
 const nav = [
   ['dashboard','⌂','Dashboard'],['leads','◉','Leads'],['contacts','◌','Contacts'],['companies','▣','Companies'],
   ['opportunities','◆','Opportunities'],['quotes','▤','Quotes'],['orders','▥','Orders'],['invoices','▦','Invoices'],
-  ['products','◇','Products'],['tasks','✓','Tasks'],['conversations','◍','Inbox'],['campaigns','✦','Campaigns'],
+  ['products','◇','Products'],['calls','☎','Calls'],['tasks','✓','Tasks'],['conversations','◍','Inbox'],['campaigns','✦','Campaigns'],
   ['automations','⚙','Automation'],['calendar','◷','Calendar'],['notifications','●','Notifications'],['billing','₹','Billing'],['integrations','⌘','Integrations'],['reports','▥','Reports'],['team','♙','Team'],['audit','≡','Audit Log'],['settings','☷','Settings']
 ];
 
@@ -31,6 +31,7 @@ const resources = {
   orders:{title:'Orders',endpoint:'/orders',fields:['order_number','quote_id','company_id','status','currency','total']},
   invoices:{title:'Invoices',endpoint:'/invoices',fields:['invoice_number','order_id','company_id','status','currency','total','due_date']},
   products:{title:'Products',endpoint:'/products',fields:['name','sku','price','currency','tax_rate','active']},
+  calls:{title:'Calls',endpoint:'/calls',fields:['phone','direction','status','duration_seconds','started_at','ended_at','agent_id']},
   tasks:{title:'Tasks',endpoint:'/tasks',fields:['title','status','priority','due_date','assigned_to']},
   campaigns:{title:'Campaigns',endpoint:'/campaigns',fields:['name','channel','status','audience_type','scheduled_at']},
   automations:{title:'Automation',endpoint:'/automations',fields:['name','trigger_type','active','description']},
@@ -96,7 +97,7 @@ function LeadDetail({leadId, onBack}) {
   const addNote=async()=>{const body=window.prompt('Note for this lead:');if(!body)return;await api('/notes',{method:'POST',body:JSON.stringify({body,lead_id:leadId,related_type:'lead',related_id:leadId,created_by:cfg.userId||0})});load()};
   const addTask=async()=>{const title=window.prompt('Task title:');if(!title)return;await api('/tasks',{method:'POST',body:JSON.stringify({title,status:'open',priority:'normal',related_type:'lead',related_id:leadId,assigned_to:cfg.userId||0})});load()};
   return <><PageHead title={[lead.first_name,lead.last_name].filter(Boolean).join(' ')||'Lead'} desc={lead.company||lead.email||'Lead record'} />
-    <div className="lead-toolbar"><Button onClick={onBack}>← Back to leads</Button><div><Button onClick={addNote}>＋ Note</Button><Button onClick={addTask}>＋ Task</Button><Button kind="primary" onClick={convert} disabled={busy}>Convert lead</Button></div></div>
+    <div className="lead-toolbar"><Button onClick={onBack}>← Back to leads</Button><div><Button onClick={async()=>{if(!lead.phone)return;try{await api('/calls',{method:'POST',body:JSON.stringify({lead_id:leadId,phone:lead.phone,direction:'outbound',status:'initiated',agent_id:cfg.userId||0,started_at:new Date().toISOString().slice(0,19).replace('T',' ')})});window.location.href='tel:'+String(lead.phone).replace(/[^\\d+]/g,'');}catch(e){setNotice(e.message)}}}>☎ Call</Button><Button onClick={addNote}>＋ Note</Button><Button onClick={addTask}>＋ Task</Button><Button kind="primary" onClick={convert} disabled={busy}>Convert lead</Button></div></div>
     {notice&&<div className="og-notice">{notice}</div>}
     <div className="lead-summary panel"><div className="big-avatar">{initials(lead.first_name,lead.last_name)}</div><div><h2>{lead.first_name} {lead.last_name}</h2><p>{lead.job_title||'Prospect'} · {lead.company||'No company'}</p></div><div className="lead-facts"><span><small>Status</small><b>{lead.status||'new'}</b></span><span><small>Score</small><b>{lead.score||0}</b></span><span><small>Value</small><b>{money(lead.value)}</b></span></div></div>
     <div className="detail-tabs">{['overview','activity','whatsapp','notes','tasks','related'].map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{labels(x)}</button>)}</div>
