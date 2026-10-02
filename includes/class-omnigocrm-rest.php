@@ -222,6 +222,11 @@ class OmniGoCRM_REST {
             array('methods'=>'DELETE','callback'=>array($this,'delete_media'),'permission_callback'=>array($this,'manage_permission'))
         ));
 
+        register_rest_route('omnigocrm/v1','/integrations/providers',array('methods'=>'GET','callback'=>array($this,'integration_providers'),'permission_callback'=>array($this,'permission')));
+        register_rest_route('omnigocrm/v1','/integrations/(?P<id>\d+)/credentials',array('methods'=>'POST','callback'=>array($this,'save_integration_credentials'),'permission_callback'=>array($this,'admin_permission')));
+        register_rest_route('omnigocrm/v1','/integrations/(?P<id>\d+)/oauth/start',array('methods'=>'POST','callback'=>array($this,'integration_oauth_start'),'permission_callback'=>array($this,'admin_permission')));
+        register_rest_route('omnigocrm/v1','/integrations/oauth/callback',array('methods'=>'GET','callback'=>array($this,'integration_oauth_callback'),'permission_callback'=>'__return_true'));
+
         register_rest_route('omnigocrm/v1','/conversations',array(
             array('methods'=>'GET','callback'=>array($this,'conversations'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'create_conversation'),'permission_callback'=>array($this,'manage_permission'))
@@ -352,6 +357,7 @@ class OmniGoCRM_REST {
         $sql="SELECT * FROM {$table} WHERE ".implode(' AND ',$where)." ORDER BY id DESC LIMIT %d OFFSET %d";
         $values[]=$limit;$values[]=$offset;
         $rows=$wpdb->get_results($wpdb->prepare($sql,$values));
+        if($type==='integrations') foreach($rows as $row) $this->safe_integration_row($row);
         return rest_ensure_response(array('data'=>$rows,'pagination'=>array('limit'=>$limit,'offset'=>$offset,'count'=>count($rows))));
     }
 
@@ -361,6 +367,7 @@ class OmniGoCRM_REST {
         if(!$cfg) return new WP_Error('invalid_resource','Invalid resource.',array('status'=>400));
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t[$cfg['table']]} WHERE id=%d",(int)$request['id']));
         if(!$row) return new WP_Error('not_found','Record not found.',array('status'=>404));
+        if($type==='integrations') $this->safe_integration_row($row);
         return rest_ensure_response(array('data'=>$row));
     }
 
@@ -572,8 +579,11 @@ class OmniGoCRM_REST {
         return rest_ensure_response(array('urls'=>array(
             'mobile'=>'https://wa.me/'.$phone.'?text='.$encoded,
             'web'=>'https://web.whatsapp.com/send?phone='.$phone.'&text='.$encoded,
-            'desktop'=>'whatsapp://send?phone='.$phone.'&text='.$encoded
-        ),'message'=>$body,'phone'=>$phone,'note'=>'WhatsApp opens with the message prepared. Press Send in WhatsApp.'));
+            'desktop'=>'whatsapp://send?phone='.$phone.'&text='.$encoded,
+            'mobile_personal'=>'intent://send?phone='.$phone.'&text='.$encoded.'#Intent;scheme=whatsapp;package=com.whatsapp;end',
+            'mobile_business'=>'intent://send?phone='.$phone.'&text='.$encoded.'#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end'
+        ),'message'=>$body,'phone'=>$phone,'note'=>'WhatsApp opens with the message prepared. Press Send in WhatsApp.',
+            'targets'=>array('web','desktop','mobile_personal','mobile_business')));
     }
 
     public function conversations() {
@@ -805,13 +815,215 @@ class OmniGoCRM_REST {
         return new WP_REST_Response(array('data'=>array('id'=>$user_id,'name'=>$name,'email'=>$email,'role'=>$role)),201);
     }
 
+    private function integration_providers_map() {
+        return array(
+            'google_calendar'=>array(
+                'name'=>'Google Calendar',
+                'category'=>'Calendar',
+                'auth_type'=>'oauth2',
+                'auth_url'=>'https://accounts.google.com/o/oauth2/v2/auth',
+                'token_url'=>'https://oauth2.googleapis.com/token',
+                'scopes'=>array('https://www.googleapis.com/auth/calendar.events'),
+                'description'=>'Create and sync CRM meetings, tasks and follow-ups with Google Calendar.'
+            ),
+            'gmail'=>array(
+                'name'=>'Google Gmail',
+                'category'=>'Email',
+                'auth_type'=>'oauth2',
+                'auth_url'=>'https://accounts.google.com/o/oauth2/v2/auth',
+                'token_url'=>'https://oauth2.googleapis.com/token',
+                'scopes'=>array('https://www.googleapis.com/auth/gmail.send'),
+                'description'=>'Send CRM email from Gmail using delegated OAuth access.'
+            ),
+            'zoho_mail'=>array(
+                'name'=>'Zoho Mail',
+                'category'=>'Email',
+                'auth_type'=>'oauth2',
+                'auth_url'=>'https://accounts.zoho.com/oauth/v2/auth',
+                'token_url'=>'https://accounts.zoho.com/oauth/v2/token',
+                'scopes'=>array('ZohoMail.messages.CREATE,ZohoMail.messages.READ'),
+                'description'=>'Connect a Zoho Mail mailbox. The Zoho Accounts data center can be changed in setup.'
+            ),
+            'microsoft_365'=>array(
+                'name'=>'Microsoft 365',
+                'category'=>'Calendar & Email',
+                'auth_type'=>'oauth2',
+                'auth_url'=>'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+                'token_url'=>'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+                'scopes'=>array('offline_access','User.Read','Calendars.ReadWrite','Mail.Send'),
+                'description'=>'Connect Outlook mail and calendar through Microsoft identity.'
+            ),
+            'slack'=>array(
+                'name'=>'Slack',
+                'category'=>'Messaging',
+                'auth_type'=>'oauth2',
+                'auth_url'=>'https://slack.com/oauth/v2/authorize',
+                'token_url'=>'https://slack.com/api/oauth.v2.access',
+                'scopes'=>array('chat:write','channels:read'),
+                'description'=>'Send CRM notifications and automation messages to Slack.'
+            ),
+            'zoom'=>array(
+                'name'=>'Zoom',
+                'category'=>'Meetings',
+                'auth_type'=>'oauth2',
+                'auth_url'=>'https://zoom.us/oauth/authorize',
+                'token_url'=>'https://zoom.us/oauth/token',
+                'scopes'=>array(),
+                'description'=>'Prepare a Zoom meeting integration for CRM appointments.'
+            ),
+            'webhook'=>array(
+                'name'=>'Custom Webhook',
+                'category'=>'Automation',
+                'auth_type'=>'webhook',
+                'auth_url'=>'',
+                'token_url'=>'',
+                'scopes'=>array(),
+                'description'=>'Connect any external tool that accepts HTTPS webhooks.'
+            )
+        );
+    }
+
+    public function integration_providers() {
+        $providers=$this->integration_providers_map();
+        $rows=array();
+        foreach($providers as $code=>$provider){
+            $provider['code']=$code;
+            $provider['redirect_uri']=rest_url('omnigocrm/v1/integrations/oauth/callback');
+            $rows[]=$provider;
+        }
+        return rest_ensure_response(array('data'=>$rows));
+    }
+
+    private function integration_secret_key() {
+        return hash('sha256',wp_salt('auth'),true);
+    }
+
+    private function encrypt_integration_secret($value) {
+        if($value==='') return '';
+        $iv=random_bytes(16);
+        $cipher=openssl_encrypt($value,'AES-256-CBC',$this->integration_secret_key(),OPENSSL_RAW_DATA,$iv);
+        return base64_encode($iv.$cipher);
+    }
+
+    private function decrypt_integration_secret($value) {
+        if(!$value) return '';
+        $raw=base64_decode($value,true);
+        if(!$raw || strlen($raw)<=16) return '';
+        return (string)openssl_decrypt(substr($raw,16),'AES-256-CBC',$this->integration_secret_key(),OPENSSL_RAW_DATA,substr($raw,0,16));
+    }
+
+    private function integration_secrets() {
+        return (array)get_option('omnigocrm_integration_secrets',array());
+    }
+
+    private function safe_integration_row($row) {
+        if(!$row) return $row;
+        $row->config=json_decode($row->config?:'{}');
+        if(is_object($row->config)) {
+            unset($row->config->client_secret);
+            unset($row->config->access_token);
+            unset($row->config->refresh_token);
+        }
+        return $row;
+    }
+
+    public function save_integration_credentials($request) {
+        global $wpdb;
+        $id=(int)$request['id'];
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['integrations']} WHERE id=%d",$id));
+        if(!$row) return new WP_Error('not_found','Integration not found.',array('status'=>404));
+        $p=$request->get_json_params();
+        $secrets=$this->integration_secrets();
+        $entry=isset($secrets[$id])?(array)$secrets[$id]:array();
+        foreach(array('client_secret','api_key','access_token','refresh_token') as $key) {
+            if(array_key_exists($key,$p) && $p[$key]!=='') $entry[$key]=$this->encrypt_integration_secret((string)$p[$key]);
+        }
+        $secrets[$id]=$entry;
+        update_option('omnigocrm_integration_secrets',$secrets,false);
+        $config=json_decode($row->config?:'{}',true);
+        if(!is_array($config))$config=array();
+        foreach(array('client_id','scope','auth_url','token_url','data_center') as $key) {
+            if(array_key_exists($key,$p))$config[$key]=is_string($p[$key])?sanitize_text_field($p[$key]):$p[$key];
+        }
+        $wpdb->update($this->t['integrations'],array('config'=>wp_json_encode($config),'updated_at'=>current_time('mysql')),array('id'=>$id));
+        $this->audit('update','integration',$id);
+        return rest_ensure_response(array('success'=>true,'data'=>$this->safe_integration_row($wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['integrations']} WHERE id=%d",$id)))));
+    }
+
+    public function integration_oauth_start($request) {
+        global $wpdb;
+        $id=(int)$request['id'];
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['integrations']} WHERE id=%d",$id));
+        if(!$row)return new WP_Error('not_found','Integration not found.',array('status'=>404));
+        $provider=$this->integration_providers_map()[$row->type]??null;
+        if(!$provider || $provider['auth_type']!=='oauth2')return new WP_Error('unsupported','This integration does not use OAuth2.',array('status'=>400));
+        $config=json_decode($row->config?:'{}',true);if(!is_array($config))$config=array();
+        $client_id=sanitize_text_field($config['client_id']??'');
+        if(!$client_id)return new WP_Error('missing_client_id','Add the OAuth Client ID before connecting.',array('status'=>400));
+        $auth_url=$config['auth_url']??$provider['auth_url'];
+        $scope=$config['scope']??implode(' ',$provider['scopes']);
+        $state=wp_generate_password(48,false,false);
+        set_transient('omnigocrm_oauth_'.$state,array('integration_id'=>$id,'user_id'=>get_current_user_id(),'provider'=>$row->type),10*MINUTE_IN_SECONDS);
+        $redirect=rest_url('omnigocrm/v1/integrations/oauth/callback');
+        $params=array(
+            'client_id'=>$client_id,
+            'redirect_uri'=>$redirect,
+            'response_type'=>'code',
+            'scope'=>$scope,
+            'state'=>$state,
+            'access_type'=>'offline',
+            'prompt'=>'consent'
+        );
+        return rest_ensure_response(array('url'=>add_query_arg($params,$auth_url),'redirect_uri'=>$redirect));
+    }
+
+    public function integration_oauth_callback($request) {
+        global $wpdb;
+        $state=sanitize_text_field($request->get_param('state'));
+        $code=sanitize_text_field($request->get_param('code'));
+        $state_data=$state?get_transient('omnigocrm_oauth_'.$state):false;
+        if(!$state_data || empty($state_data['integration_id']) || !$code) {
+            return new WP_Error('oauth_state','Invalid or expired OAuth state.',array('status'=>400));
+        }
+        delete_transient('omnigocrm_oauth_'.$state);
+        $id=(int)$state_data['integration_id'];
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['integrations']} WHERE id=%d",$id));
+        if(!$row)return new WP_Error('not_found','Integration not found.',array('status'=>404));
+        $provider=$this->integration_providers_map()[$row->type]??null;
+        $config=json_decode($row->config?:'{}',true);if(!is_array($config))$config=array();
+        $secrets=$this->integration_secrets();$secret_entry=isset($secrets[$id])?(array)$secrets[$id]:array();
+        $client_secret=$this->decrypt_integration_secret($secret_entry['client_secret']??'');
+        $token_url=$config['token_url']??($provider['token_url']??'');
+        if(!$client_secret || !$token_url)return new WP_Error('oauth_credentials','OAuth credentials are incomplete.',array('status'=>400));
+        $response=wp_safe_remote_post($token_url,array('timeout'=>20,'body'=>array(
+            'client_id'=>$config['client_id'],
+            'client_secret'=>$client_secret,
+            'code'=>$code,
+            'grant_type'=>'authorization_code',
+            'redirect_uri'=>rest_url('omnigocrm/v1/integrations/oauth/callback')
+        )));
+        if(is_wp_error($response))return $response;
+        $body=json_decode(wp_remote_retrieve_body($response),true);
+        if(!is_array($body) || empty($body['access_token'])) {
+            return new WP_Error('oauth_token','OAuth token exchange failed.',array('status'=>400,'provider_response'=>$body));
+        }
+        if(!empty($body['access_token']))$secret_entry['access_token']=$this->encrypt_integration_secret($body['access_token']);
+        if(!empty($body['refresh_token']))$secret_entry['refresh_token']=$this->encrypt_integration_secret($body['refresh_token']);
+        if(isset($body['expires_in']))$secret_entry['expires_at']=time()+(int)$body['expires_in'];
+        $secrets[$id]=$secret_entry;update_option('omnigocrm_integration_secrets',$secrets,false);
+        $wpdb->update($this->t['integrations'],array('status'=>'connected','updated_at'=>current_time('mysql')),array('id'=>$id));
+        $target=admin_url('admin.php?page=omnigocrm');
+        wp_safe_redirect(add_query_arg(array('integration'=>'connected','integration_id'=>$id),$target));
+        exit;
+    }
+
     public function settings(){
-        $defaults=array('business_name'=>get_bloginfo('name'),'currency'=>'INR','timezone'=>wp_timezone_string(),'lead_default_status'=>'new','whatsapp_default_template'=>'','company_website'=>home_url(),'notifications'=>1);
+        $defaults=array('business_name'=>get_bloginfo('name'),'currency'=>'INR','timezone'=>wp_timezone_string(),'lead_default_status'=>'new','whatsapp_default_template'=>'','whatsapp_default_target'=>'web','whatsapp_mobile_target'=>'personal','company_website'=>home_url(),'notifications'=>1);
         return rest_ensure_response(array('data'=>wp_parse_args(get_option('omnigocrm_settings',array()),$defaults)));
     }
 
     public function save_settings($request){
-        $p=$request->get_json_params();$current=(array)get_option('omnigocrm_settings',array());$allowed=array('business_name','currency','timezone','lead_default_status','whatsapp_default_template','company_website','notifications');
+        $p=$request->get_json_params();$current=(array)get_option('omnigocrm_settings',array());$allowed=array('business_name','currency','timezone','lead_default_status','whatsapp_default_template','whatsapp_default_target','whatsapp_mobile_target','company_website','notifications');
         foreach($allowed as $k)if(array_key_exists($k,$p))$current[$k]=in_array($k,array('notifications'),true)?$this->bool_value($p[$k]):$this->clean($p[$k]);
         update_option('omnigocrm_settings',$current);$this->audit('update','settings',0,$current);return rest_ensure_response(array('data'=>$current));
     }
