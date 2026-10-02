@@ -235,7 +235,7 @@ class OmniGoCRM_REST {
             array('methods'=>'GET','callback'=>array($this,'tags'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'create_tag'),'permission_callback'=>array($this,'manage_permission'))
         ));
-        register_rest_route('omnigocrm/v1','/tags/(?P<id>\\d+)',array('methods'=>'DELETE','callback'=>array($this,'delete_tag'),'permission_callback'=>array($this,'manage_permission')));
+        register_rest_route('omnigocrm/v1','/tags/(?P<id>\d+)',array('methods'=>'DELETE','callback'=>array($this,'delete_tag'),'permission_callback'=>array($this,'manage_permission')));
         register_rest_route('omnigocrm/v1','/pipelines',array(
             array('methods'=>'GET','callback'=>array($this,'pipelines'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'create_pipeline'),'permission_callback'=>array($this,'manage_permission'))
@@ -447,7 +447,15 @@ class OmniGoCRM_REST {
         $this->audit('update','message_template',$id);return rest_ensure_response(array('data'=>$row));
     }
 
-    public function delete_template($request){global $wpdb;$id=(int)$request['id'];$wpdb->update($this->t['templates'],array('active'=>0,'updated_at'=>current_time('mysql')),array('id'=>$id));$this->audit('delete','message_template',$id);return rest_ensure_response(array('success'=>true));}
+    public function delete_template($request){
+        global $wpdb;
+        $id=(int)$request['id'];
+        $exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['templates']} WHERE id=%d",$id));
+        if(!$exists)return new WP_Error('not_found','Template not found.',array('status'=>404));
+        $wpdb->update($this->t['templates'],array('active'=>0,'updated_at'=>current_time('mysql')),array('id'=>$id));
+        $this->audit('delete','message_template',$id);
+        return rest_ensure_response(array('success'=>true,'id'=>$id));
+    }
 
     public function media($request) {
         global $wpdb;$rows=$wpdb->get_results("SELECT * FROM {$this->t['media']} WHERE active=1 ORDER BY name");return rest_ensure_response(array('data'=>$rows));
@@ -469,7 +477,15 @@ class OmniGoCRM_REST {
         $data['updated_at']=current_time('mysql');$wpdb->update($this->t['media'],$data,array('id'=>$id));$row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['media']} WHERE id=%d",$id));if(!$row)return new WP_Error('not_found','Media asset not found.',array('status'=>404));$this->audit('update','media_asset',$id);return rest_ensure_response(array('data'=>$row));
     }
 
-    public function delete_media($request){global $wpdb;$id=(int)$request['id'];$wpdb->update($this->t['media'],array('active'=>0,'is_active'=>0,'updated_at'=>current_time('mysql')),array('id'=>$id));$this->audit('delete','media_asset',$id);return rest_ensure_response(array('success'=>true));}
+    public function delete_media($request){
+        global $wpdb;
+        $id=(int)$request['id'];
+        $exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['media']} WHERE id=%d",$id));
+        if(!$exists)return new WP_Error('not_found','Media asset not found.',array('status'=>404));
+        $wpdb->update($this->t['media'],array('active'=>0,'is_active'=>0,'updated_at'=>current_time('mysql')),array('id'=>$id));
+        $this->audit('delete','media_asset',$id);
+        return rest_ensure_response(array('success'=>true,'id'=>$id));
+    }
 
     public function convert_lead($request) {
         global $wpdb;
@@ -551,7 +567,16 @@ class OmniGoCRM_REST {
         $this->audit('create','tag',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['tags']} WHERE id=%d",$wpdb->insert_id))),201);
     }
 
-    public function delete_tag($request){global $wpdb;$id=(int)$request['id'];$wpdb->delete($this->t['entity_tags'],array('tag_id'=>$id));$wpdb->delete($this->t['tags'],array('id'=>$id));$this->audit('delete','tag',$id);return rest_ensure_response(array('success'=>true));}
+    public function delete_tag($request){
+        global $wpdb;
+        $id=(int)$request['id'];
+        $exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['tags']} WHERE id=%d",$id));
+        if(!$exists)return new WP_Error('not_found','Tag not found.',array('status'=>404));
+        $wpdb->delete($this->t['entity_tags'],array('tag_id'=>$id));
+        $wpdb->delete($this->t['tags'],array('id'=>$id));
+        $this->audit('delete','tag',$id);
+        return rest_ensure_response(array('success'=>true,'id'=>$id));
+    }
 
     public function pipelines() {
         global $wpdb;$pipes=$wpdb->get_results("SELECT * FROM {$this->t['pipelines']} ORDER BY is_default DESC,name");
