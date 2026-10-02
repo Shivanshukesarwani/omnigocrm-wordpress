@@ -60,6 +60,24 @@ function omnigocrm_render_app() {
 function omnigocrm_assets($hook) {
     if ($hook !== 'toplevel_page_omnigocrm') return;
 
+    $react_dist = OMNIGOCRM_DIR . 'assets/react-dist/omnigocrm.js';
+    $react_dist_css = OMNIGOCRM_DIR . 'assets/react-dist/omnigocrm.css';
+
+    // Prefer the Vite production bundle. Keep the source/Babel loader as a fallback
+    // for deployments where the build artifacts were not included in the ZIP.
+    if (file_exists($react_dist) && file_exists($react_dist_css)) {
+        wp_enqueue_style('omnigocrm-react', OMNIGOCRM_URL . 'assets/react-dist/omnigocrm.css', array(), OMNIGOCRM_VERSION);
+        wp_enqueue_script('omnigocrm-react', OMNIGOCRM_URL . 'assets/react-dist/omnigocrm.js', array(), OMNIGOCRM_VERSION, true);
+        wp_localize_script('omnigocrm-react', 'OmniGoCRMConfig', array(
+            'restUrl' => esc_url_raw(rest_url('omnigocrm/v1')),
+            'nonce' => wp_create_nonce('wp_rest'),
+            'adminUrl' => admin_url(),
+            'version' => OMNIGOCRM_VERSION,
+            'userId' => get_current_user_id()
+        ));
+        return;
+    }
+
     $react_source = OMNIGOCRM_DIR . 'app/src/App.jsx';
     $react_css = OMNIGOCRM_DIR . 'app/src/styles.css';
     if (file_exists($react_source) && file_exists($react_css)) {
