@@ -407,7 +407,8 @@ class OmniGoCRM_REST {
         if(!$record_exists)return new WP_Error('not_found','Record not found.',array('status'=>404));
         $old_invoice_id=0;
         if($type==='payments')$old_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
-        $wpdb->update($this->t[$cfg['table']],$data,array('id'=>$id));
+        $updated=$wpdb->update($this->t[$cfg['table']],$data,array('id'=>$id));
+        if($updated===false)return new WP_Error('db_error',$wpdb->last_error?:'Could not update record.',array('status'=>500));
         if($type==='payments'){
             $new_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
             $this->reconcile_invoice($new_invoice_id);
@@ -425,9 +426,18 @@ class OmniGoCRM_REST {
         $id=(int)$request['id'];
         $exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t[$cfg['table']]} WHERE id=%d",$id));
         if(!$exists)return new WP_Error('not_found','Record not found.',array('status'=>404));
+        if($type==='quotes'){
+            $linked_order=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['orders']} WHERE quote_id=%d LIMIT 1",$id));
+            if($linked_order)return new WP_Error('conflict','Quote has an order and cannot be deleted.',array('status'=>409));
+        }
+        if($type==='orders'){
+            $linked_invoice=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['invoices']} WHERE order_id=%d LIMIT 1",$id));
+            if($linked_invoice)return new WP_Error('conflict','Order has an invoice and cannot be deleted.',array('status'=>409));
+        }
         $payment_invoice_id=0;
         if($type==='payments')$payment_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
-        $wpdb->delete($this->t[$cfg['table']],array('id'=>$id));
+        $deleted=$wpdb->delete($this->t[$cfg['table']],array('id'=>$id));
+        if($deleted===false)return new WP_Error('db_error',$wpdb->last_error?:'Could not delete record.',array('status'=>500));
         if($type==='payments' && $payment_invoice_id)$this->reconcile_invoice($payment_invoice_id);
         if($type==='quotes')$wpdb->delete($this->t['quote_items'],array('quote_id'=>$id));
         if($type==='orders')$wpdb->delete($this->t['order_items'],array('order_id'=>$id));
@@ -448,8 +458,11 @@ class OmniGoCRM_REST {
         global $wpdb;$p=$request->get_json_params();
         if(empty($p['name'])||empty($p['body']))return new WP_Error('validation','Template name and body are required.',array('status'=>400));
         $now=current_time('mysql');
-        $data=array('name'=>$this->clean($p['name']),'channel'=>$this->clean($p['channel']??'whatsapp'),'subject'=>$this->clean($p['subject']??''),'body'=>$this->textarea($p['body']),'media_asset_id'=>(int)($p['media_asset_id']??0),'active'=>1,'created_at'=>$now,'updated_at'=>$now);
-        $wpdb->insert($this->t['templates'],$data);$this->audit('create','message_template',$wpdb->insert_id);
+        $media_id=(int)($p['media_asset_id']??0);
+        if($media_id && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['media']} WHERE id=%d AND active=1",$media_id)))return new WP_Error('not_found','Media asset not found.',array('status'=>404));
+        $data=array('name'=>$this->clean($p['name']),'channel'=>$this->clean($p['channel']??'whatsapp'),'subject'=>$this->clean($p['subject']??''),'body'=>$this->textarea($p['body']),'media_asset_id'=>$media_id,'active'=>1,'created_at'=>$now,'updated_at'=>$now);
+        if(!$wpdb->insert($this->t['templates'],$data))return new WP_Error('db_error',$wpdb->last_error?:'Could not create template.',array('status'=>500));
+        $this->audit('create','message_template',$wpdb->insert_id);
         return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['templates']} WHERE id=%d",$wpdb->insert_id))),201);
     }
 
@@ -457,7 +470,11 @@ class OmniGoCRM_REST {
         global $wpdb;$id=(int)$request['id'];$p=$request->get_json_params();$data=array();
         foreach(array('name','channel','subject') as $k)if(isset($p[$k]))$data[$k]=$this->clean($p[$k]);
         if(isset($p['body']))$data['body']=$this->textarea($p['body']);
-        if(isset($p['media_asset_id']))$data['media_asset_id']=(int)$p['media_asset_id'];
+        if(isset($p['media_asset_id'])){
+            $media_id=(int)$p['media_asset_id'];
+            if($media_id && !$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['media']} WHERE id=%d AND active=1",$media_id)))return new WP_Error('not_found','Media asset not found.',array('status'=>404));
+            $data['media_asset_id']=$media_id;
+        }
         if(isset($p['active']))$data['active']=$this->bool_value($p['active']);
         $data['updated_at']=current_time('mysql');$wpdb->update($this->t['templates'],$data,array('id'=>$id));
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['templates']} WHERE id=%d",$id));if(!$row)return new WP_Error('not_found','Template not found.',array('status'=>404));
@@ -482,7 +499,8 @@ class OmniGoCRM_REST {
         global $wpdb;$p=$request->get_json_params();
         if(empty($p['name'])||empty($p['url']))return new WP_Error('validation','Media name and URL are required.',array('status'=>400));
         $now=current_time('mysql');$data=array('name'=>$this->clean($p['name']),'description'=>$this->textarea($p['description']??''),'asset_type'=>$this->clean($p['asset_type']??'document'),'url'=>esc_url_raw($p['url']),'thumbnail_url'=>esc_url_raw($p['thumbnail_url']??''),'mime_type'=>$this->clean($p['mime_type']??''),'active'=>1,'is_active'=>1,'created_at'=>$now,'updated_at'=>$now);
-        $wpdb->insert($this->t['media'],$data);$this->audit('create','media_asset',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['media']} WHERE id=%d",$wpdb->insert_id))),201);
+        if(!$wpdb->insert($this->t['media'],$data))return new WP_Error('db_error',$wpdb->last_error?:'Could not create media asset.',array('status'=>500));
+        $this->audit('create','media_asset',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['media']} WHERE id=%d",$wpdb->insert_id))),201);
     }
 
     public function update_media($request) {
@@ -562,14 +580,17 @@ class OmniGoCRM_REST {
         global $wpdb;$p=$request->get_json_params();$now=current_time('mysql');
         $data=array('lead_id'=>(int)($p['lead_id']??0),'contact_id'=>(int)($p['contact_id']??0),'channel'=>$this->clean($p['channel']??'whatsapp'),'external_contact'=>$this->clean($p['external_contact']??''),'phone'=>$this->phone($p['phone']??''),'subject'=>$this->clean($p['subject']??''),'status'=>'open','assigned_to'=>get_current_user_id(),'created_at'=>$now,'updated_at'=>$now);
         if(!in_array($data['channel'],array('whatsapp','sms','email','call','web'),true))$data['channel']='whatsapp';
-        $wpdb->insert($this->t['conversations'],$data);$this->audit('create','conversation',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['conversations']} WHERE id=%d",$wpdb->insert_id))),201);
+        if(!$wpdb->insert($this->t['conversations'],$data))return new WP_Error('db_error',$wpdb->last_error?:'Could not create conversation.',array('status'=>500));
+        $this->audit('create','conversation',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['conversations']} WHERE id=%d",$wpdb->insert_id))),201);
     }
 
     public function messages($request){global $wpdb;$id=(int)$request['id'];$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['messages']} WHERE conversation_id=%d ORDER BY created_at ASC",$id));return rest_ensure_response(array('data'=>$rows));}
 
     public function create_message($request) {
         global $wpdb;$id=(int)$request['id'];$conversation_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['conversations']} WHERE id=%d",$id));if(!$conversation_exists)return new WP_Error('not_found','Conversation not found.',array('status'=>404));$p=$request->get_json_params();$body=$this->textarea($p['body']??'');if(!$body)return new WP_Error('validation','Message body is required.',array('status'=>400));$now=current_time('mysql');
-        $wpdb->insert($this->t['messages'],array('conversation_id'=>$id,'sender_id'=>get_current_user_id(),'direction'=>$this->clean($p['direction']??'outbound'),'message_type'=>$this->clean($p['message_type']??'text'),'body'=>$body,'media_url'=>esc_url_raw($p['media_url']??''),'status'=>'prepared','metadata'=>wp_json_encode($p['metadata']??array()),'created_at'=>$now));
+        $direction=$this->clean($p['direction']??'outbound');
+        if(!in_array($direction,array('inbound','outbound'),true))return new WP_Error('validation','Direction must be inbound or outbound.',array('status'=>400));
+        if(!$wpdb->insert($this->t['messages'],array('conversation_id'=>$id,'sender_id'=>get_current_user_id(),'direction'=>$direction,'message_type'=>$this->clean($p['message_type']??'text'),'body'=>$body,'media_url'=>esc_url_raw($p['media_url']??''),'status'=>'prepared','metadata'=>wp_json_encode($p['metadata']??array()),'created_at'=>$now)))return new WP_Error('db_error',$wpdb->last_error?:'Could not create message.',array('status'=>500));
         $this->audit('create','message',$wpdb->insert_id);$wpdb->update($this->t['conversations'],array('last_message'=>$body,'last_message_at'=>$now,'updated_at'=>$now),array('id'=>$id));
         return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['messages']} WHERE id=%d",$wpdb->insert_id))),201);
     }
@@ -606,7 +627,9 @@ class OmniGoCRM_REST {
         if(!isset($allowed[$entity_type]))return new WP_Error('validation','Unsupported entity type.',array('status'=>400));
         $entity_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t[$allowed[$entity_type]]} WHERE id=%d",$entity_id));
         if(!$entity_exists)return new WP_Error('not_found','Entity not found.',array('status'=>404));
-        $wpdb->query($wpdb->prepare("INSERT IGNORE INTO {$this->t['entity_tags']} (tag_id,entity_type,entity_id) VALUES (%d,%s,%d)",$tag_id,$entity_type,$entity_id));
+        $inserted=$wpdb->query($wpdb->prepare("INSERT IGNORE INTO {$this->t['entity_tags']} (tag_id,entity_type,entity_id) VALUES (%d,%s,%d)",$tag_id,$entity_type,$entity_id));
+        if($inserted===false)return new WP_Error('db_error',$wpdb->last_error?:'Could not assign tag.',array('status'=>500));
+        if($inserted===0)return rest_ensure_response(array('success'=>true,'existing'=>true,'tag_id'=>$tag_id,'entity_type'=>$entity_type,'entity_id'=>$entity_id));
         $this->audit('assign','tag',$tag_id,array('entity_type'=>$entity_type,'entity_id'=>$entity_id));
         return rest_ensure_response(array('success'=>true,'tag_id'=>$tag_id,'entity_type'=>$entity_type,'entity_id'=>$entity_id));
     }
@@ -641,7 +664,8 @@ class OmniGoCRM_REST {
 
     public function create_pipeline($request) {
         global $wpdb;$p=$request->get_json_params();$now=current_time('mysql');if(empty($p['name']))return new WP_Error('validation','Pipeline name is required.',array('status'=>400));
-        $wpdb->insert($this->t['pipelines'],array('name'=>$this->clean($p['name']),'description'=>$this->textarea($p['description']??''),'is_default'=>!empty($p['is_default'])?1:0,'created_at'=>$now,'updated_at'=>$now));$id=$wpdb->insert_id;
+        if(!$wpdb->insert($this->t['pipelines'],array('name'=>$this->clean($p['name']),'description'=>$this->textarea($p['description']??''),'is_default'=>!empty($p['is_default'])?1:0,'created_at'=>$now,'updated_at'=>$now)))return new WP_Error('db_error',$wpdb->last_error?:'Could not create pipeline.',array('status'=>500));
+        $id=$wpdb->insert_id;
         $this->audit('create','pipeline',$id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['pipelines']} WHERE id=%d",$id))),201);
     }
 
@@ -653,7 +677,10 @@ class OmniGoCRM_REST {
         $pipeline_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['pipelines']} WHERE id=%d",$pipeline_id));
         if(!$pipeline_exists)return new WP_Error('not_found','Pipeline not found.',array('status'=>404));
         $p=$request->get_json_params();$now=current_time('mysql');if(empty($p['name']))return new WP_Error('validation','Stage name is required.',array('status'=>400));
-        $pos=(int)($p['position']??1);$wpdb->insert($this->t['stages'],array('pipeline_id'=>(int)$request['id'],'name'=>$this->clean($p['name']),'position'=>$pos,'probability'=>(int)($p['probability']??0),'stage_color'=>$this->clean($p['stage_color']??''),'created_at'=>$now,'updated_at'=>$now));$this->audit('create','pipeline_stage',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['stages']} WHERE id=%d",$wpdb->insert_id))),201);
+        $pos=max(1,(int)($p['position']??1));
+        $probability=min(100,max(0,(int)($p['probability']??0)));
+        if(!$wpdb->insert($this->t['stages'],array('pipeline_id'=>(int)$request['id'],'name'=>$this->clean($p['name']),'position'=>$pos,'probability'=>$probability,'stage_color'=>$this->clean($p['stage_color']??''),'created_at'=>$now,'updated_at'=>$now)))return new WP_Error('db_error',$wpdb->last_error?:'Could not create pipeline stage.',array('status'=>500));
+        $this->audit('create','pipeline_stage',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['stages']} WHERE id=%d",$wpdb->insert_id))),201);
     }
 
     private function recalc_items($type,$id) {
@@ -733,7 +760,7 @@ class OmniGoCRM_REST {
     public function calendar() {
         global $wpdb;
         $from=current_time('mysql');
-        $to=current_time('mysql', false, strtotime('+60 days'));
+        $to=wp_date('Y-m-d H:i:s',current_time('timestamp')+(60*DAY_IN_SECONDS));
         $rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['tasks']} WHERE due_at IS NOT NULL AND due_at BETWEEN %s AND %s ORDER BY due_at",$from,$to));
         return rest_ensure_response(array('data'=>$rows));
     }
