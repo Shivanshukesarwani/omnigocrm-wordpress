@@ -193,7 +193,7 @@ class OmniGoCRM_REST {
                 array('methods'=>'GET','callback'=>array($this,'resource'),'permission_callback'=>array($this,'permission')),
                 array('methods'=>'POST','callback'=>array($this,'create_resource'),'permission_callback'=>array($this,'manage_permission'))
             ));
-            register_rest_route('omnigocrm/v1','/'.$type.'/(?P<id>\d+)',array(
+            register_rest_route('omnigocrm/v1','/(?P<type>'.$type.')/(?P<id>\d+)',array(
                 array('methods'=>'GET','callback'=>array($this,'resource_item'),'permission_callback'=>array($this,'permission')),
                 array('methods'=>'POST','callback'=>array($this,'update_resource'),'permission_callback'=>array($this,'manage_permission')),
                 array('methods'=>'PATCH','callback'=>array($this,'update_resource'),'permission_callback'=>array($this,'manage_permission')),
