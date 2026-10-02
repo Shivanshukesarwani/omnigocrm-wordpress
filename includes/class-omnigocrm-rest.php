@@ -205,6 +205,7 @@ class OmniGoCRM_REST {
 
         register_rest_route('omnigocrm/v1','/leads/(?P<id>\d+)/convert',array('methods'=>'POST','callback'=>array($this,'convert_lead'),'permission_callback'=>array($this,'manage_permission')));
         register_rest_route('omnigocrm/v1','/leads/(?P<id>\d+)/whatsapp/prepare',array('methods'=>'POST','callback'=>array($this,'whatsapp'),'permission_callback'=>array($this,'manage_permission')));
+        register_rest_route('omnigocrm/v1','/whatsapp/prepare',array('methods'=>'POST','callback'=>array($this,'whatsapp_prepare'),'permission_callback'=>array($this,'manage_permission')));
         register_rest_route('omnigocrm/v1','/whatsapp/templates',array(
             array('methods'=>'GET','callback'=>array($this,'templates'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'create_template'),'permission_callback'=>array($this,'manage_permission'))
@@ -611,6 +612,71 @@ class OmniGoCRM_REST {
         $wpdb->update($this->t['leads'],array('status'=>'converted','updated_at'=>$now),array('id'=>$id));
         $this->audit('convert','lead',$id,array('contact_id'=>$contact_id,'opportunity_id'=>$opp_id));
         return rest_ensure_response(array('success'=>true,'lead_id'=>$id,'contact_id'=>$contact_id,'opportunity_id'=>$opp_id));
+    }
+
+    public function whatsapp_prepare($request) {
+        global $wpdb;
+        $p=$request->get_json_params();
+        $entity_type=sanitize_key($p['entity_type']??'lead');
+        $entity_id=(int)($p['entity_id']??0);
+        $map=array('lead'=>'leads','leads'=>'leads','contact'=>'contacts','contacts'=>'contacts','company'=>'companies','companies'=>'companies');
+        if(!isset($map[$entity_type]))return new WP_Error('invalid_entity','WhatsApp is currently available for leads, contacts and companies.',array('status'=>400));
+        $table=$this->t[$map[$entity_type]];
+        $record=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d",$entity_id));
+        if(!$record)return new WP_Error('not_found','CRM record not found.',array('status'=>404));
+
+        $body=$this->textarea($p['body']??'');
+        $template_id=(int)($p['template_id']??0);
+        $media_id=(int)($p['media_asset_id']??$p['media_id']??0);
+        $asset=$media_id?$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['media']} WHERE id=%d AND active=1",$media_id)):null;
+        if(!$body && $template_id)$body=(string)$wpdb->get_var($wpdb->prepare("SELECT body FROM {$this->t['templates']} WHERE id=%d AND active=1",$template_id));
+        if($asset && strpos($body,$asset->url)===false)$body=trim($body."
+
+".$asset->name.": ".$asset->url);
+        $body=$this->render_body($body,(object)array(
+            'first_name'=>$record->first_name??'',
+            'last_name'=>$record->last_name??'',
+            'phone'=>$record->phone??'',
+            'company'=>$record->company??$record->name??''
+        ),$asset?$asset->url:'');
+        if(!$body)return new WP_Error('empty_message','Message cannot be empty.',array('status'=>400));
+        $phone=$this->phone($record->phone??'');
+        if(!$phone)return new WP_Error('missing_phone','This CRM record does not have a valid WhatsApp phone number.',array('status'=>400));
+
+        $now=current_time('mysql');
+        $conv=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['conversations']} WHERE channel='whatsapp' AND ((lead_id=%d AND %s='leads') OR (contact_id=%d AND %s='contacts')) ORDER BY updated_at DESC LIMIT 1",$entity_id,$map[$entity_type],$entity_id,$map[$entity_type]));
+        if(!$conv){
+            $wpdb->insert($this->t['conversations'],array(
+                'lead_id'=>$map[$entity_type]==='leads'?$entity_id:0,
+                'contact_id'=>$map[$entity_type]==='contacts'?$entity_id:0,
+                'channel'=>'whatsapp','external_contact'=>$phone,'phone'=>$phone,
+                'assigned_to'=>get_current_user_id(),'status'=>'open','last_message'=>$body,
+                'last_message_at'=>$now,'created_at'=>$now,'updated_at'=>$now
+            ));
+            $conv=$wpdb->insert_id;
+        } else {
+            $wpdb->update($this->t['conversations'],array('last_message'=>$body,'last_message_at'=>$now,'updated_at'=>$now),array('id'=>$conv));
+        }
+        $wpdb->insert($this->t['messages'],array(
+            'conversation_id'=>$conv,'sender_id'=>get_current_user_id(),'direction'=>'outbound',
+            'message_type'=>$asset?'file':'text','body'=>$body,'media_url'=>$asset?$asset->url:'',
+            'status'=>'prepared','metadata'=>wp_json_encode(array('method'=>'click_to_chat','entity_type'=>$entity_type,'entity_id'=>$entity_id,'template_id'=>$template_id,'media_asset_id'=>$media_id)),
+            'created_at'=>$now
+        ));
+        $this->audit('whatsapp_redirect',$entity_type,$entity_id,array('phone'=>$phone,'media_asset_id'=>$media_id));
+        $encoded=rawurlencode($body);
+        return rest_ensure_response(array(
+            'urls'=>array(
+                'mobile'=>'https://wa.me/'.$phone.'?text='.$encoded,
+                'web'=>'https://web.whatsapp.com/send?phone='.$phone.'&text='.$encoded,
+                'desktop'=>'whatsapp://send?phone='.$phone.'&text='.$encoded,
+                'mobile_personal'=>'intent://send?phone='.$phone.'&text='.$encoded.'#Intent;scheme=whatsapp;package=com.whatsapp;end',
+                'mobile_business'=>'intent://send?phone='.$phone.'&text='.$encoded.'#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end'
+            ),
+            'message'=>$body,'phone'=>$phone,
+            'targets'=>array('web','desktop','mobile_personal','mobile_business'),
+            'note'=>'The message is prepared; WhatsApp still requires the user to press Send.'
+        ));
     }
 
     public function whatsapp($request) {
