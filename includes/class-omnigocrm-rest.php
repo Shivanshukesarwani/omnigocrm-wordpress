@@ -648,7 +648,11 @@ class OmniGoCRM_REST {
     public function stages($request){global $wpdb;$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['stages']} WHERE pipeline_id=%d ORDER BY position",(int)$request['id']));return rest_ensure_response(array('data'=>$rows));}
 
     public function create_stage($request) {
-        global $wpdb;$p=$request->get_json_params();$now=current_time('mysql');if(empty($p['name']))return new WP_Error('validation','Stage name is required.',array('status'=>400));
+        global $wpdb;
+        $pipeline_id=(int)$request['id'];
+        $pipeline_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['pipelines']} WHERE id=%d",$pipeline_id));
+        if(!$pipeline_exists)return new WP_Error('not_found','Pipeline not found.',array('status'=>404));
+        $p=$request->get_json_params();$now=current_time('mysql');if(empty($p['name']))return new WP_Error('validation','Stage name is required.',array('status'=>400));
         $pos=(int)($p['position']??1);$wpdb->insert($this->t['stages'],array('pipeline_id'=>(int)$request['id'],'name'=>$this->clean($p['name']),'position'=>$pos,'probability'=>(int)($p['probability']??0),'stage_color'=>$this->clean($p['stage_color']??''),'created_at'=>$now,'updated_at'=>$now));$this->audit('create','pipeline_stage',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['stages']} WHERE id=%d",$wpdb->insert_id))),201);
     }
 
@@ -721,7 +725,11 @@ class OmniGoCRM_REST {
     }
 
     public function calendar() {
-        global $wpdb;$from=current_time('mysql');$to=date('Y-m-d H:i:s',strtotime('+60 days'));$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['tasks']} WHERE due_at IS NOT NULL AND due_at BETWEEN %s AND %s ORDER BY due_at",$from,$to));return rest_ensure_response(array('data'=>$rows));
+        global $wpdb;
+        $from=current_time('mysql');
+        $to=current_time('mysql', false, strtotime('+60 days'));
+        $rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['tasks']} WHERE due_at IS NOT NULL AND due_at BETWEEN %s AND %s ORDER BY due_at",$from,$to));
+        return rest_ensure_response(array('data'=>$rows));
     }
 
     public function notifications() {
@@ -818,8 +826,8 @@ class OmniGoCRM_REST {
         $key='omnigocrm_public_lead_'.md5($ip);
         $attempts=(int)get_transient($key);
         if($attempts>=20)return new WP_Error('rate_limited','Too many lead submissions. Try again later.',array('status'=>429));
-        set_transient($key,$attempts+1,HOUR_IN_SECONDS);
         $first=$this->clean($p['first_name']??'');if(!$first)return new WP_Error('validation','First name is required.',array('status'=>400));
+        set_transient($key,$attempts+1,HOUR_IN_SECONDS);
         $now=current_time('mysql');$data=array('first_name'=>$first,'last_name'=>$this->clean($p['last_name']??''),'company'=>$this->clean($p['company']??''),'email'=>sanitize_email($p['email']??''),'phone'=>$this->clean($p['phone']??''),'source'=>$this->clean($p['source']??'website'),'status'=>'new','score'=>0,'created_at'=>$now,'updated_at'=>$now);
         $wpdb->insert($this->t['leads'],$data);
         if(!$wpdb->insert_id)return new WP_Error('db_error','Unable to save lead.',array('status'=>500));
