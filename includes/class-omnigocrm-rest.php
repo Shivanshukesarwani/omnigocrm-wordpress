@@ -167,7 +167,9 @@ class OmniGoCRM_REST {
                 $data[$field] = sanitize_email($value);
             } elseif (in_array($field, array('description','address','notes','body'), true)) {
                 $data[$field] = $this->textarea($value);
-            } elseif (in_array($field, array('source','status','stage','priority','channel','type','direction','method','provider','currency','scheduled_at','due_date','due_at','started_at','ended_at','paid_at','valid_until','expected_close_date','close_date','job_title','website','location','industry','company','name','first_name','last_name','phone','title','sku','recording_url','related_type','audience_type','trigger_type','secrets_ref'), true)) {
+            } elseif (in_array($field, array('due_date','due_at','started_at','ended_at','paid_at','valid_until','expected_close_date','close_date','scheduled_at'), true)) {
+                $data[$field] = ($value === '' || $value === null) ? null : $this->clean($value);
+            } elseif (in_array($field, array('source','status','stage','priority','channel','type','direction','method','provider','currency','job_title','website','location','industry','company','name','first_name','last_name','phone','title','sku','recording_url','related_type','audience_type','trigger_type','secrets_ref'), true)) {
                 $data[$field] = $this->clean($value);
             } else {
                 $data[$field] = $this->clean($value);
@@ -625,7 +627,11 @@ class OmniGoCRM_REST {
         if(empty($p['description']))return new WP_Error('validation','Item description is required.',array('status'=>400));
         $qty=max(0.01,(float)($p['quantity']??1));$price=max(0,(float)($p['unit_price']??0));$tax=max(0,(float)($p['tax_rate']??0));$total=$qty*$price*(1+$tax/100);
         $wpdb->insert($table,array($parent=>$id,'product_id'=>(int)($p['product_id']??0),'description'=>$this->textarea($p['description']),'quantity'=>$qty,'unit_price'=>$price,'tax_rate'=>$tax,'total'=>$total));
-        $this->recalc_items($type,$id);$this->audit('create',$type.'_item',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d",$wpdb->insert_id))),201);
+        if(!$wpdb->insert_id)return new WP_Error('db_error',$wpdb->last_error?:'Could not create line item.',array('status'=>500));
+        $item_id=(int)$wpdb->insert_id;
+        $this->recalc_items($type,$id);
+        $this->audit('create',$type.'_item',$item_id);
+        return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d",$item_id))),201);
     }
 
     public function calendar() {
