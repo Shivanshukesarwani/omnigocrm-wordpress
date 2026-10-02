@@ -39,7 +39,7 @@ const labels = s => String(s || '').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpp
 const money = n => Number(n || 0).toLocaleString(undefined,{maximumFractionDigits:2});
 const initials = (a,b) => ((a||'').charAt(0)+(b||'').charAt(0)).toUpperCase() || 'OG';
 
-function Button({children,onClick,kind='ghost',type='button'}){return <button type={type} className={kind} onClick={onClick}>{children}</button>}
+function Button({children,onClick,kind='ghost',type='button',disabled=false}){return <button type={type} className={kind} onClick={onClick} disabled={disabled}>{children}</button>}
 
 function Shell({page,setPage,children}) {
   const [search,setSearch]=useState('');
@@ -177,12 +177,19 @@ function Audit(){
 }
 
 function Reports(){
-  const [data,setData]=useState({});
-  useEffect(()=>api('/reports/summary').then(setData).catch(()=>{}),[]);
-  return <><PageHead title="Reports" desc="Sales and activity reporting for your CRM."/><div className="dashboard-grid">
-    <section className="panel"><h3>Sales snapshot</h3><div className="bar-list">{Object.entries(data||{}).slice(0,8).map(([k,v])=><div key={k}><span>{labels(k)}</span><b>{typeof v==='number'?money(v):String(v)}</b></div>)}</div>{!Object.keys(data||{}).length&&<div className="empty">Report data will appear as records are created.</div>}</section>
-    <section className="panel"><h3>Operational coverage</h3><div className="checks">{['Leads','Contacts','Pipeline','Quotes','Orders','Invoices','Payments','Inbox','Automation'].map(x=><li key={x}>Connected: {x}</li>)}</div></section>
-  </div></>
+  const [data,setData]=useState(null),[error,setError]=useState('');
+  useEffect(()=>{api('/reports/summary').then(r=>setData(r.data||r)).catch(e=>setError(e.message))},[]);
+  const d=data||{};
+  const scalar=[['Won opportunities',d.won],['Lost opportunities',d.lost],['Paid revenue',d.paid_revenue],['Outstanding',d.outstanding]];
+  return <><PageHead title="Reports" desc="Sales and activity reporting for your CRM."/>
+    {error&&<div className="og-error">{error}</div>}
+    <div className="dashboard-grid">
+      <section className="panel"><h3>Sales snapshot</h3><div className="bar-list">{scalar.map(([k,v])=><div key={k}><span>{k}</span><b>{typeof v==='number'&&k!=='Won opportunities'&&k!=='Lost opportunities'?money(v):String(v??0)}</b></div>)}</div></section>
+      <section className="panel"><h3>Pipeline by stage</h3><div className="bar-list">{(d.pipeline_by_stage||[]).map(x=><div key={x.stage}><span>{x.stage}</span><b>{x.count} · {money(x.value)}</b></div>)}{!d.pipeline_by_stage?.length&&<div className="empty">No opportunity stages yet.</div>}</div></section>
+      <section className="panel"><h3>Leads by source</h3><div className="bar-list">{(d.leads_by_source||[]).map(x=><div key={x.source}><span>{x.source||'Unknown'}</span><b>{x.count}</b></div>)}{!d.leads_by_source?.length&&<div className="empty">No lead sources yet.</div>}</div></section>
+      <section className="panel"><h3>Monthly revenue</h3><div className="bar-list">{(d.monthly_revenue||[]).map(x=><div key={x.month}><span>{x.month}</span><b>{money(x.revenue)}</b></div>)}{!d.monthly_revenue?.length&&<div className="empty">No paid revenue yet.</div>}</div></section>
+    </div>
+  </>
 }
 
 function Settings(){
