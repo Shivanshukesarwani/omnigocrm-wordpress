@@ -478,6 +478,10 @@ class OmniGoCRM_REST {
         if(!$lead)return new WP_Error('not_found','Lead not found.',array('status'=>404));
         $now=current_time('mysql');
         $contact_id=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['contacts']} WHERE email=%s OR phone=%s ORDER BY id DESC LIMIT 1",$lead->email,$lead->phone));
+        $existing_opp_id=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['opportunities']} WHERE description=%s ORDER BY id DESC LIMIT 1",'Converted from lead #'.$id));
+        if($lead->status==='converted' && $contact_id){
+            return rest_ensure_response(array('success'=>true,'lead_id'=>$id,'contact_id'=>$contact_id,'opportunity_id'=>$existing_opp_id,'already_converted'=>true));
+        }
         if(!$contact_id){
             $wpdb->insert($this->t['contacts'],array('first_name'=>$lead->first_name,'last_name'=>$lead->last_name,'company'=>$lead->company,'email'=>$lead->email,'phone'=>$lead->phone,'job_title'=>$lead->job_title,'website'=>$lead->website,'location'=>$lead->location,'owner_id'=>$lead->owner_id?:get_current_user_id(),'created_at'=>$now,'updated_at'=>$now));
             $contact_id=$wpdb->insert_id;
@@ -531,7 +535,7 @@ class OmniGoCRM_REST {
     public function messages($request){global $wpdb;$id=(int)$request['id'];$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['messages']} WHERE conversation_id=%d ORDER BY created_at ASC",$id));return rest_ensure_response(array('data'=>$rows));}
 
     public function create_message($request) {
-        global $wpdb;$id=(int)$request['id'];$p=$request->get_json_params();$body=$this->textarea($p['body']??'');if(!$body)return new WP_Error('validation','Message body is required.',array('status'=>400));$now=current_time('mysql');
+        global $wpdb;$id=(int)$request['id'];$conversation_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['conversations']} WHERE id=%d",$id));if(!$conversation_exists)return new WP_Error('not_found','Conversation not found.',array('status'=>404));$p=$request->get_json_params();$body=$this->textarea($p['body']??'');if(!$body)return new WP_Error('validation','Message body is required.',array('status'=>400));$now=current_time('mysql');
         $wpdb->insert($this->t['messages'],array('conversation_id'=>$id,'sender_id'=>get_current_user_id(),'direction'=>$this->clean($p['direction']??'outbound'),'message_type'=>$this->clean($p['message_type']??'text'),'body'=>$body,'media_url'=>esc_url_raw($p['media_url']??''),'status'=>'prepared','metadata'=>wp_json_encode($p['metadata']??array()),'created_at'=>$now));
         $this->audit('create','message',$wpdb->insert_id);$wpdb->update($this->t['conversations'],array('last_message'=>$body,'last_message_at'=>$now,'updated_at'=>$now),array('id'=>$id));
         return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['messages']} WHERE id=%d",$wpdb->insert_id))),201);
