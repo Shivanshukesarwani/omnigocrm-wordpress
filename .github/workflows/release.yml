@@ -17,6 +17,9 @@ jobs:
         run: find . -name "*.php" -print0 | xargs -0 -n1 php -l
       - name: Validate JavaScript
         run: node --check assets/admin.js
+      - name: Build React production assets
+        working-directory: app
+        run: npm install && npm run build
       - name: Package plugin
         run: |
           mkdir -p build/omnigocrm
