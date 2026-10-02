@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 
 const cfg = window.OmniGoCRMConfig || {};
 const { useState, useEffect, useMemo } = React;
