@@ -226,6 +226,7 @@ class OmniGoCRM_REST {
         register_rest_route('omnigocrm/v1','/integrations/providers',array('methods'=>'GET','callback'=>array($this,'integration_providers'),'permission_callback'=>array($this,'permission')));
         register_rest_route('omnigocrm/v1','/integrations/(?P<id>\d+)/credentials',array('methods'=>'POST','callback'=>array($this,'save_integration_credentials'),'permission_callback'=>array($this,'admin_permission')));
         register_rest_route('omnigocrm/v1','/integrations/(?P<id>\d+)/oauth/start',array('methods'=>'POST','callback'=>array($this,'integration_oauth_start'),'permission_callback'=>array($this,'admin_permission')));
+        register_rest_route('omnigocrm/v1','/integrations/(?P<id>\d+)/disconnect',array('methods'=>'POST','callback'=>array($this,'disconnect_integration'),'permission_callback'=>array($this,'admin_permission')));
         register_rest_route('omnigocrm/v1','/integrations/oauth/callback',array('methods'=>'GET','callback'=>array($this,'integration_oauth_callback'),'permission_callback'=>'__return_true'));
 
         register_rest_route('omnigocrm/v1','/conversations',array(
@@ -1043,6 +1044,13 @@ class OmniGoCRM_REST {
             unset($row->config->access_token);
             unset($row->config->refresh_token);
         }
+        $secrets=$this->integration_secrets();
+        $entry=isset($secrets[$row->id])?(array)$secrets[$row->id]:array();
+        $row->connection=array(
+            'has_client_credentials'=>!empty($entry['client_secret']),
+            'has_access_token'=>!empty($entry['access_token']),
+            'has_refresh_token'=>!empty($entry['refresh_token'])
+        );
         return $row;
     }
 
@@ -1067,6 +1075,32 @@ class OmniGoCRM_REST {
         $wpdb->update($this->t['integrations'],array('config'=>wp_json_encode($config),'updated_at'=>current_time('mysql')),array('id'=>$id));
         $this->audit('update','integration',$id);
         return rest_ensure_response(array('success'=>true,'data'=>$this->safe_integration_row($wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['integrations']} WHERE id=%d",$id)))));
+    }
+
+    public function disconnect_integration($request) {
+        global $wpdb;
+        $id=(int)$request['id'];
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['integrations']} WHERE id=%d",$id));
+        if(!$row)return new WP_Error('not_found','Integration not found.',array('status'=>404));
+
+        $secrets=$this->integration_secrets();
+        if(isset($secrets[$id])){
+            $entry=(array)$secrets[$id];
+            unset($entry['access_token'],$entry['refresh_token'],$entry['expires_at']);
+            $secrets[$id]=$entry;
+            update_option('omnigocrm_integration_secrets',$secrets,false);
+        }
+
+        $wpdb->update($this->t['integrations'],array(
+            'status'=>'disabled',
+            'updated_at'=>current_time('mysql')
+        ),array('id'=>$id));
+
+        $this->audit('disconnect','integration',$id);
+        return rest_ensure_response(array(
+            'success'=>true,
+            'data'=>$this->safe_integration_row($wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['integrations']} WHERE id=%d",$id)))
+        ));
     }
 
     public function integration_oauth_start($request) {
