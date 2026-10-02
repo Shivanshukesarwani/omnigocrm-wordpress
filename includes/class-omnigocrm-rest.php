@@ -301,7 +301,7 @@ class OmniGoCRM_REST {
             'contacts'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['contacts']}"),
             'companies'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['companies']}"),
             'opportunities'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage) NOT IN ('won','lost')"),
-            'pipeline_value'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['opportunities']} WHERE stage NOT IN ('Won','Lost','won','lost')"),
+            'pipeline_value'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['opportunities']} WHERE LOWER(stage) NOT IN ('won','lost')"),
             'tasks'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['tasks']} WHERE status NOT IN ('completed','cancelled')"),
             'invoices_outstanding'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(GREATEST(i.total-COALESCE((SELECT SUM(p.amount) FROM {$t['payments']} p WHERE p.invoice_id=i.id AND p.status='paid'),0),0)),0) FROM {$t['invoices']} i WHERE i.status NOT IN ('paid','cancelled')"),
             'paid_revenue'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['payments']} WHERE status='paid'")
