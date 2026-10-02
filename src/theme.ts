@@ -1,0 +1,1 @@
+import {createTheme} from '@mui/material/styles'; export const theme=createTheme({palette:{mode:'light',primary:{main:'#2563eb'},background:{default:'#f6f8fb',paper:'#fff'}},shape:{borderRadius:12},typography:{fontFamily:'Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}});
