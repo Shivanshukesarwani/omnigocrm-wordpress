@@ -58,7 +58,9 @@ async function loadWorkspace(userId:string):Promise<Workspace|null>{
   if(error) throw error;
   if(data?.length) {
     const w=data[0] as Workspace;
-    await supabase.from('workspace_members').upsert({workspace_id:w.id,user_id:userId,role:w.owner_id===userId?'owner':'member'},{onConflict:'workspace_id,user_id'});
+    if (w.owner_id === userId) {
+      await supabase.from('workspace_members').upsert({workspace_id:w.id,user_id:userId,role:'owner'},{onConflict:'workspace_id,user_id'});
+    }
     return w;
   }
   const name='My Workspace'; const slug='my-workspace-'+userId.slice(0,8);
