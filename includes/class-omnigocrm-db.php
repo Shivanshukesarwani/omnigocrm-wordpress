@@ -263,6 +263,7 @@ class OmniGoCRM_DB {
             agent_id bigint(20) unsigned DEFAULT 0,
             notes text,
             created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
             PRIMARY KEY (id), KEY contact_id (contact_id), KEY lead_id (lead_id)
         ) $charset;";
 
