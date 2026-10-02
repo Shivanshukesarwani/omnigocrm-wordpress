@@ -110,27 +110,31 @@ function LeadDetail({leadId, onBack}) {
 }
 
 function ResourcePage({type,onSelect}) {
-  const meta=resources[type], [rows,setRows]=useState([]), [loading,setLoading]=useState(true), [error,setError]=useState(''), [q,setQ]=useState(''), [selected,setSelected]=useState(null), [modal,setModal]=useState(false), [saving,setSaving]=useState(false);
+  const meta=resources[type], [rows,setRows]=useState([]), [loading,setLoading]=useState(true), [error,setError]=useState(''), [q,setQ]=useState(''), [selected,setSelected]=useState(null), [modal,setModal]=useState(false), [editing,setEditing]=useState(false), [saving,setSaving]=useState(false);
   const load=()=>{setLoading(true);setError('');api(meta.endpoint).then(r=>setRows(Array.isArray(r)?r:(r.data||r.items||[]))).catch(e=>setError(e.message)).finally(()=>setLoading(false))};
   useEffect(load,[]);
   const filtered=useMemo(()=>rows.filter(r=>JSON.stringify(r).toLowerCase().includes(q.toLowerCase())),[rows,q]);
   const create=async form=>{setSaving(true);setError('');try{await api(meta.endpoint,{method:'POST',body:JSON.stringify(form)});setModal(false);load()}catch(e){setError(e.message)}finally{setSaving(false)}};
+  const update=async form=>{if(!selected?.id)return;setSaving(true);setError('');try{const r=await api(meta.endpoint+'/'+selected.id,{method:'PATCH',body:JSON.stringify(form)});setSelected(r.data||r);setEditing(false);load()}catch(e){setError(e.message)}finally{setSaving(false)}};
+  const remove=async()=>{if(!selected?.id||!window.confirm('Delete this record? This cannot be undone.'))return;setSaving(true);setError('');try{await api(meta.endpoint+'/'+selected.id,{method:'DELETE'});setSelected(null);setEditing(false);load()}catch(e){setError(e.message)}finally{setSaving(false)}};
   return <><PageHead title={meta.title} desc={'Manage '+meta.title.toLowerCase()+' from one workspace.'} onAdd={()=>setModal(true)} addLabel={'Add '+meta.title.replace(/s$/,'')}/>
     <div className="toolbar-card"><div className="table-search">⌕<input value={q} onChange={e=>setQ(e.target.value)} placeholder={'Search '+meta.title.toLowerCase()}/></div><span className="result-count">{filtered.length} records</span></div>
     {error&&<div className="og-error">{error}</div>}
     <section className="panel table-panel">{loading?<div className="empty">Loading…</div>:!filtered.length?<div className="empty">No records yet. Create the first one.</div>:
-      <table><thead><tr>{meta.fields.slice(0,7).map(f=><th key={f}>{labels(f)}</th>)}</tr></thead><tbody>{filtered.map((r,i)=><tr key={r.id||i} onClick={()=>{setSelected(r);if(onSelect)onSelect(r.id) }}>{meta.fields.slice(0,7).map(f=><td key={f}>{f==='price'||f==='amount'||f==='total'||f==='value'?money(r[f]):f==='active'?<span className="badge">{r[f]?'Active':'Inactive'}</span>:String(r[f]??'—')}</td>)}</tr>)}</tbody></table>}
+      <table><thead><tr>{meta.fields.slice(0,7).map(f=><th key={f}>{labels(f)}</th>)}</tr></thead><tbody>{filtered.map((r,i)=><tr key={r.id||i} onClick={()=>{setSelected(r);setEditing(false);if(onSelect)onSelect(r.id) }}>{meta.fields.slice(0,7).map(f=><td key={f}>{f==='price'||f==='amount'||f==='total'||f==='value'?money(r[f]):f==='active'?<span className="badge">{r[f]?'Active':'Inactive'}</span>:String(r[f]??'—')}</td>)}</tr>)}</tbody></table>}
     </section>
-    {selected&&<div className="side-detail"><div className="detail-top"><button className="close" onClick={()=>setSelected(null)}>×</button><div className="detail-person"><div className="big-avatar">{initials(selected.first_name,selected.last_name||selected.name)}</div><div><h2>{selected.name||[selected.first_name,selected.last_name].filter(Boolean).join(' ')}</h2><p>{selected.email||selected.company||selected.status||'CRM record'}</p></div></div></div><div className="detail-body"><div className="detail-card"><h3>Record details</h3>{Object.entries(selected).filter(([k])=>!['id','created_at','updated_at'].includes(k)).slice(0,14).map(([k,v])=><div className="detail-line" key={k}><small>{labels(k)}</small><span>{typeof v==='object'?JSON.stringify(v):String(v??'—')}</span></div>)}</div></div></div>}
+    {selected&&<div className="side-detail"><div className="detail-top"><button className="close" onClick={()=>{setSelected(null);setEditing(false)}} disabled={saving}>×</button><div className="detail-person"><div className="big-avatar">{initials(selected.first_name,selected.last_name||selected.name)}</div><div><h2>{selected.name||[selected.first_name,selected.last_name].filter(Boolean).join(' ')}</h2><p>{selected.email||selected.company||selected.status||'CRM record'}</p></div></div><div className="detail-actions"><Button onClick={()=>setEditing(true)} disabled={saving}>Edit</Button><Button kind="danger" onClick={remove} disabled={saving}>Delete</Button></div></div>
+      <div className="detail-body">{editing?<RecordModal embedded title={'Edit '+meta.title.replace(/s$/,'')} fields={meta.fields} initial={selected} onClose={()=>setEditing(false)} onSave={update} saving={saving}/>:<div className="detail-card"><h3>Record details</h3>{Object.entries(selected).filter(([k])=>!['id','created_at','updated_at'].includes(k)).slice(0,14).map(([k,v])=><div className="detail-line" key={k}><small>{labels(k)}</small><span>{typeof v==='object'?JSON.stringify(v):String(v??'—')}</span></div>)}</div>}</div></div>}
     {modal&&<RecordModal title={'Create '+meta.title.replace(/s$/,'')} fields={meta.fields} onClose={()=>setModal(false)} onSave={create} saving={saving}/>}
   </>
 }
 
-function RecordModal({title,fields,onClose,onSave,saving=false}) {
-  const [form,setForm]=useState({});
-  return <div className="modal-back"><div className="modal wide"><button className="close" onClick={onClose} disabled={saving}>×</button><h2>{title}</h2><div className="form-grid">
+function RecordModal({title,fields,onClose,onSave,saving=false,initial={},embedded=false}) {
+  const [form,setForm]=useState(()=>Object.fromEntries(fields.map(f=>[f,initial[f]??''])));
+  const body=<><h2>{title}</h2><div className="form-grid">
     {fields.map(f=><label key={f}>{labels(f)}<input value={form[f]??''} onChange={e=>setForm({...form,[f]:e.target.value})} disabled={saving} /></label>)}
-  </div><div className="modal-actions"><Button onClick={onClose} disabled={saving}>Cancel</Button><Button kind="primary" onClick={()=>onSave(form)} disabled={saving}>{saving?'Saving…':'Save'}</Button></div></div></div>
+  </div><div className="modal-actions"><Button onClick={onClose} disabled={saving}>Cancel</Button><Button kind="primary" onClick={()=>onSave(form)} disabled={saving}>{saving?'Saving…':'Save'}</Button></div></>;
+  return embedded?<div className="embedded-form">{body}</div>:<div className="modal-back"><div className="modal wide"><button className="close" onClick={onClose} disabled={saving}>×</button>{body}</div></div>;
 }
 
 function Inbox(){
