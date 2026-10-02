@@ -325,8 +325,7 @@ class OmniGoCRM_REST {
 
     public function resource($request) {
         global $wpdb;
-        $type=$request['type'] ?? '';
-        if ($type==='') $type=$request->get_route_params()['type'] ?? '';
+        $type=isset($request['type']) ? sanitize_key($request['type']) : '';
         $cfg=$this->cfg($type);
         if(!$cfg) return new WP_Error('invalid_resource','Invalid resource.',array('status'=>400));
         $limit=min(250,max(1,(int)$request->get_param('limit')?:100));
