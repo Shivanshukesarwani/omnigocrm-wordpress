@@ -393,8 +393,14 @@ class OmniGoCRM_REST {
         if(!$cfg)return new WP_Error('invalid_resource','Invalid resource.',array('status'=>400));
         $input=$request->get_json_params();if(!is_array($input))$input=array();
         $data=$this->sanitize_data($type,$input,true);if(is_wp_error($data))return $data;
+        if($type==='payments' && array_key_exists('invoice_id',$data) && $data['invoice_id']){
+            $invoice_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['invoices']} WHERE id=%d",(int)$data['invoice_id']));
+            if(!$invoice_exists)return new WP_Error('not_found','Invoice not found.',array('status'=>404));
+        }
         $data['updated_at']=current_time('mysql');
         $id=(int)$request['id'];
+        $record_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t[$cfg['table']]} WHERE id=%d",$id));
+        if(!$record_exists)return new WP_Error('not_found','Record not found.',array('status'=>404));
         $old_invoice_id=0;
         if($type==='payments')$old_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
         $wpdb->update($this->t[$cfg['table']],$data,array('id'=>$id));
@@ -691,10 +697,10 @@ class OmniGoCRM_REST {
 
     public function quote_items($request){global $wpdb;return rest_ensure_response(array('data'=>$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['quote_items']} WHERE quote_id=%d ORDER BY id",(int)$request['id']))));}
     public function add_quote_item($request){return $this->add_line_item('quote',$request);}
-    public function delete_quote_item($request){global $wpdb;$id=(int)$request['id'];$parent=(int)$request['quote_id'];$wpdb->delete($this->t['quote_items'],array('id'=>$id,'quote_id'=>$parent));$this->recalc_items('quote',$parent);$this->audit('delete','quote_item',$id);return rest_ensure_response(array('success'=>true));}
+    public function delete_quote_item($request){global $wpdb;$id=(int)$request['id'];$parent=(int)$request['quote_id'];$exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['quote_items']} WHERE id=%d AND quote_id=%d",$id,$parent));if(!$exists)return new WP_Error('not_found','Quote line item not found.',array('status'=>404));$wpdb->delete($this->t['quote_items'],array('id'=>$id,'quote_id'=>$parent));$this->recalc_items('quote',$parent);$this->audit('delete','quote_item',$id);return rest_ensure_response(array('success'=>true,'id'=>$id));}
     public function order_items($request){global $wpdb;return rest_ensure_response(array('data'=>$wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->t['order_items']} WHERE order_id=%d ORDER BY id",(int)$request['id']))));}
     public function add_order_item($request){return $this->add_line_item('order',$request);}
-    public function delete_order_item($request){global $wpdb;$id=(int)$request['id'];$parent=(int)$request['order_id'];$wpdb->delete($this->t['order_items'],array('id'=>$id,'order_id'=>$parent));$this->recalc_items('order',$parent);$this->audit('delete','order_item',$id);return rest_ensure_response(array('success'=>true));}
+    public function delete_order_item($request){global $wpdb;$id=(int)$request['id'];$parent=(int)$request['order_id'];$exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['order_items']} WHERE id=%d AND order_id=%d",$id,$parent));if(!$exists)return new WP_Error('not_found','Order line item not found.',array('status'=>404));$wpdb->delete($this->t['order_items'],array('id'=>$id,'order_id'=>$parent));$this->recalc_items('order',$parent);$this->audit('delete','order_item',$id);return rest_ensure_response(array('success'=>true,'id'=>$id));}
 
     private function add_line_item($type,$request){
         global $wpdb;$p=$request->get_json_params();$parent=$type==='quote'?'quote_id':'order_id';$table=$type==='quote'?$this->t['quote_items']:$this->t['order_items'];$parent_table=$type==='quote'?$this->t['quotes']:$this->t['orders'];$id=(int)$request['id'];
@@ -758,10 +764,10 @@ class OmniGoCRM_REST {
 
     public function subscription(){global $wpdb;$row=$wpdb->get_row("SELECT s.*,p.code plan_code,p.name plan_name,p.monthly_price FROM {$this->t['subscriptions']} s LEFT JOIN {$this->t['plans']} p ON p.id=s.plan_id ORDER BY s.id DESC LIMIT 1");return rest_ensure_response(array('data'=>$row));}
 
-    public function save_subscription($request){global $wpdb;$p=$request->get_json_params();$plan=(int)($p['plan_id']??0);if(!$plan)return new WP_Error('validation','Plan is required.',array('status'=>400));$now=current_time('mysql');$existing=$wpdb->get_var("SELECT id FROM {$this->t['subscriptions']} ORDER BY id DESC LIMIT 1");$data=array('plan_id'=>$plan,'status'=>$this->clean($p['status']??'trialing'),'provider'=>$this->clean($p['provider']??''),'provider_subscription_id'=>$this->clean($p['provider_subscription_id']??''),'current_period_start'=>$p['current_period_start']??null,'current_period_end'=>$p['current_period_end']??null,'updated_at'=>$now);if($existing)$wpdb->update($this->t['subscriptions'],$data,array('id'=>$existing));else{$data['created_at']=$now;$wpdb->insert($this->t['subscriptions'],$data);}$this->audit('update','subscription',$existing?:$wpdb->insert_id);return $this->subscription($request);}
+    public function save_subscription($request){global $wpdb;$p=$request->get_json_params();$plan=(int)($p['plan_id']??0);if(!$plan)return new WP_Error('validation','Plan is required.',array('status'=>400));$plan_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['plans']} WHERE id=%d AND active=1",$plan));if(!$plan_exists)return new WP_Error('not_found','Active plan not found.',array('status'=>404));$now=current_time('mysql');$existing=$wpdb->get_var("SELECT id FROM {$this->t['subscriptions']} ORDER BY id DESC LIMIT 1");$data=array('plan_id'=>$plan,'status'=>$this->clean($p['status']??'trialing'),'provider'=>$this->clean($p['provider']??''),'provider_subscription_id'=>$this->clean($p['provider_subscription_id']??''),'current_period_start'=>$p['current_period_start']??null,'current_period_end'=>$p['current_period_end']??null,'updated_at'=>$now);if($existing)$wpdb->update($this->t['subscriptions'],$data,array('id'=>$existing));else{$data['created_at']=$now;$wpdb->insert($this->t['subscriptions'],$data);}$this->audit('update','subscription',$existing?:$wpdb->insert_id);return $this->subscription($request);}
     
     public function run_automation($request){
-        global $wpdb;$id=(int)$request['id'];$automation=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['automations']} WHERE id=%d",$id));if(!$automation)return new WP_Error('not_found','Automation not found.',array('status'=>404));$now=current_time('mysql');$wpdb->insert($this->t['automation_jobs'],array('automation_id'=>$id,'status'=>'queued','run_at'=>$now,'payload'=>wp_json_encode(array('requested_by'=>get_current_user_id())),'created_at'=>$now,'updated_at'=>$now));$this->audit('enqueue','automation',$id);if(!wp_next_scheduled('omnigocrm_process_jobs'))wp_schedule_single_event(time()+10,'omnigocrm_process_jobs');return rest_ensure_response(array('queued'=>true,'job_id'=>$wpdb->insert_id));
+        global $wpdb;$id=(int)$request['id'];$automation=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['automations']} WHERE id=%d",$id));if(!$automation)return new WP_Error('not_found','Automation not found.',array('status'=>404));if(!(int)$automation->active)return new WP_Error('inactive_automation','Automation is inactive.',array('status'=>409));$now=current_time('mysql');$wpdb->insert($this->t['automation_jobs'],array('automation_id'=>$id,'status'=>'queued','run_at'=>$now,'payload'=>wp_json_encode(array('requested_by'=>get_current_user_id())),'created_at'=>$now,'updated_at'=>$now));$this->audit('enqueue','automation',$id);if(!wp_next_scheduled('omnigocrm_process_jobs'))wp_schedule_single_event(time()+10,'omnigocrm_process_jobs');return rest_ensure_response(array('queued'=>true,'job_id'=>$wpdb->insert_id));
     }
 
     public function process_jobs(){
