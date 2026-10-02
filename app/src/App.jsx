@@ -240,27 +240,97 @@ function Integrations(){
   const [rows,setRows]=useState([]),[providers,setProviders]=useState([]),[modal,setModal]=useState(null),[form,setForm]=useState({}),[saving,setSaving]=useState(false),[notice,setNotice]=useState('');
   const load=()=>Promise.all([api('/integrations'),api('/integrations/providers')]).then(([r,p])=>{setRows(r.data||r);setProviders(p.data||p)}).catch(e=>setNotice(e.message));
   useEffect(load,[]);
+  const openConfigure=(provider)=>{
+    const existing=rows.find(x=>String(x.type)===String(provider.code));
+    const cfg=existing?.config||{};
+    setModal(provider);
+    setForm({
+      id:existing?.id||'',
+      name:existing?.name||provider.name,
+      client_id:cfg.client_id||'',
+      client_secret:'',
+      api_key:'',
+      scope:cfg.scope||provider.scopes?.join(' ')||'',
+      data_center:cfg.data_center||'',
+      webhook_url:cfg.webhook_url||''
+    });
+    setNotice('');
+  };
   const save=async()=>{
     setSaving(true);setNotice('');
     try{
       const provider=modal;
-      const created=await api('/integrations',{method:'POST',body:JSON.stringify({name:form.name||provider.name,type:provider.code,status:'configured',config:{client_id:form.client_id||'',scope:form.scope||provider.scopes?.join(' ')||'',auth_url:provider.auth_url||'',token_url:provider.token_url||'',data_center:form.data_center||'',webhook_url:form.webhook_url||''}})});
-      const id=(created.data||created).id;
-      if(form.client_secret||form.api_key)await api('/integrations/'+id+'/credentials',{method:'POST',body:JSON.stringify({client_id:form.client_id||'',client_secret:form.client_secret||'',api_key:form.api_key||'',data_center:form.data_center||''})});
-      setModal(null);setForm({});setNotice('Integration saved.');load();
+      const existing=rows.find(x=>String(x.type)===String(provider.code));
+      const config={
+        ...(existing?.config||{}),
+        client_id:form.client_id||'',
+        scope:form.scope||provider.scopes?.join(' ')||'',
+        auth_url:provider.auth_url||existing?.config?.auth_url||'',
+        token_url:provider.token_url||existing?.config?.token_url||'',
+        data_center:form.data_center||'',
+        webhook_url:form.webhook_url||''
+      };
+      const payload={name:form.name||provider.name,status:existing?.status||'configured',config};
+      let id=existing?.id;
+      if(id){
+        await api('/integrations/'+id,{method:'POST',body:JSON.stringify(payload)});
+      }else{
+        const created=await api('/integrations',{method:'POST',body:JSON.stringify({...payload,type:provider.code})});
+        id=(created.data||created).id;
+      }
+      if(form.client_secret||form.api_key||form.client_id||form.data_center){
+        await api('/integrations/'+id+'/credentials',{method:'POST',body:JSON.stringify({
+          client_id:form.client_id||'',
+          client_secret:form.client_secret||'',
+          api_key:form.api_key||'',
+          data_center:form.data_center||''
+        })});
+      }
+      setModal(null);setForm({});setNotice('Integration saved.');await load();
     }catch(e){setNotice(e.message)}finally{setSaving(false)}
   };
   const connect=async row=>{
-    try{const r=await api('/integrations/'+row.id+'/oauth/start',{method:'POST',body:'{}'});window.location.href=r.url}catch(e){setNotice(e.message)}
+    try{
+      const r=await api('/integrations/'+row.id+'/oauth/start',{method:'POST',body:'{}'});
+      window.location.href=r.url;
+    }catch(e){setNotice(e.message)}
   };
-  return <><PageHead title="Integrations" desc="Connect Google, Zoho, Microsoft, Slack, Zoom and custom webhooks." onAdd={()=>setModal(providers[0]||null)} addLabel="Add integration"/>
+  const disconnect=async row=>{
+    if(!window.confirm('Disconnect '+row.name+'? The saved client credentials will be kept, but OAuth access tokens will be removed.'))return;
+    try{
+      await api('/integrations/'+row.id+'/disconnect',{method:'POST',body:'{}'});
+      setNotice(row.name+' disconnected.');
+      await load();
+    }catch(e){setNotice(e.message)}
+  };
+  return <><PageHead title="Integrations" desc="Connect Google, Zoho, Microsoft, Slack, Zoom and custom webhooks."/>
     {notice&&<div className="og-notice">{notice}</div>}
-    <div className="integration-grid">{providers.map(p=><div className="panel integration-card" key={p.code}><div className="integration-icon">{p.name.charAt(0)}</div><h3>{p.name}</h3><small>{p.category}</small><p>{p.description}</p><Button onClick={()=>{setModal(p);setForm({name:p.name,scope:p.scopes?.join(' ')||'',data_center:''})}}>Configure</Button></div>)}</div>
-    <section className="panel"><div className="panel-head"><h3>Configured integrations</h3><span>{rows.length} connected/configured</span></div>{rows.map(x=><div className="integration-row" key={x.id}><div><b>{x.name}</b><small>{x.type} · {x.status}</small></div><div>{String(x.status)==='connected'?<span className="badge">Connected</span>:<Button kind="primary" onClick={()=>connect(x)}>Connect</Button>}</div></div>)}{!rows.length&&<div className="empty">No integrations configured.</div>}</section>
+    <div className="integration-grid">{providers.map(p=>{
+      const existing=rows.find(x=>String(x.type)===String(p.code));
+      return <div className="panel integration-card" key={p.code}>
+        <div className="integration-icon">{p.name.charAt(0)}</div>
+        <h3>{p.name}</h3>
+        <small>{p.category}</small>
+        <p>{p.description}</p>
+        <div className="page-actions"><Button onClick={()=>openConfigure(p)}>Configure</Button>{existing?.status==='connected'&&<span className="badge">Connected</span>}</div>
+      </div>;
+    })}</div>
+    <section className="panel"><div className="panel-head"><h3>Configured integrations</h3><span>{rows.length} configured</span></div>
+      {rows.map(x=><div className="integration-row" key={x.id}>
+        <div><b>{x.name}</b><small>{x.type} · {x.status}</small></div>
+        <div className="page-actions">
+          {String(x.status)==='connected'
+            ? <><span className="badge">Connected</span><Button kind="ghost" onClick={()=>disconnect(x)}>Disconnect</Button></>
+            : <Button kind="primary" onClick={()=>connect(x)}>Connect</Button>}
+          <Button kind="ghost" onClick={()=>openConfigure(providers.find(p=>p.code===x.type)||{code:x.type,name:x.name,auth_type:'webhook',scopes:[],description:'Configured integration.'})}>Configure</Button>
+        </div>
+      </div>)}
+      {!rows.length&&<div className="empty">No integrations configured.</div>}
+    </section>
     {modal&&<div className="modal-back"><div className="modal wide"><button className="close" onClick={()=>setModal(null)}>×</button><h2>Configure {modal.name}</h2><p>{modal.description}</p>
-      {modal.auth_type==='oauth2'&&<><label className="stack">OAuth Client ID<input value={form.client_id||''} onChange={e=>setForm({...form,client_id:e.target.value})} placeholder="From provider developer console"/></label><label className="stack">OAuth Client Secret<input type="password" value={form.client_secret||''} onChange={e=>setForm({...form,client_secret:e.target.value})}/></label><label className="stack">Scopes<input value={form.scope||''} onChange={e=>setForm({...form,scope:e.target.value})}/></label>{modal.code==='zoho_mail'&&<label className="stack">Zoho data center<input value={form.data_center||''} onChange={e=>setForm({...form,data_center:e.target.value})} placeholder="accounts.zoho.in"/></label>}<div className="og-notice">OAuth callback: {window.location.origin}/wp-json/omnigocrm/v1/integrations/oauth/callback</div></>}
-      {modal.auth_type==='webhook'&&<label className="stack">Webhook URL<input value={form.webhook_url||''} onChange={e=>setForm({...form,webhook_url:e.target.value})}/></label>}
-      <div className="modal-actions"><Button onClick={()=>setModal(null)}>Cancel</Button><Button kind="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save integration'}</Button></div>
+      {modal.auth_type==='oauth2'&&<><label className="stack">OAuth Client ID<input value={form.client_id||''} onChange={e=>setForm({...form,client_id:e.target.value})} placeholder="From provider developer console"/></label><label className="stack">OAuth Client Secret<input type="password" value={form.client_secret||''} onChange={e=>setForm({...form,client_secret:e.target.value})} placeholder="Leave blank to keep the saved secret"/></label><label className="stack">Scopes<input value={form.scope||''} onChange={e=>setForm({...form,scope:e.target.value})}/></label>{modal.code==='zoho_mail'&&<label className="stack">Zoho data center<input value={form.data_center||''} onChange={e=>setForm({...form,data_center:e.target.value})} placeholder="accounts.zoho.in"/></label>}<div className="og-notice">OAuth callback: {window.location.origin}/wp-json/omnigocrm/v1/integrations/oauth/callback</div></>}
+      {modal.auth_type==='webhook'&&<label className="stack">Webhook URL<input value={form.webhook_url||''} onChange={e=>setForm({...form,webhook_url:e.target.value})} placeholder="https://example.com/webhook"/></label>}
+      <div className="modal-actions"><Button onClick={()=>setModal(null)} disabled={saving}>Cancel</Button><Button kind="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save integration'}</Button></div>
     </div></div>}
   </>
 }
