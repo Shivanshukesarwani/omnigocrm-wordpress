@@ -435,6 +435,7 @@ class OmniGoCRM_DB {
             paid_at datetime DEFAULT NULL,
             notes text,
             created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
             PRIMARY KEY (id), KEY invoice_id (invoice_id), KEY status (status), KEY paid_at (paid_at)
         ) $charset;";
 
