@@ -19,7 +19,7 @@ const nav = [
   ['dashboard','⌂','Dashboard'],['leads','◉','Leads'],['contacts','◌','Contacts'],['companies','▣','Companies'],
   ['opportunities','◆','Opportunities'],['quotes','▤','Quotes'],['orders','▥','Orders'],['invoices','▦','Invoices'],
   ['products','◇','Products'],['tasks','✓','Tasks'],['conversations','◍','Inbox'],['campaigns','✦','Campaigns'],
-  ['automations','⚙','Automation'],['calendar','◷','Calendar'],['notifications','●','Notifications'],['billing','₹','Billing'],['integrations','⌘','Integrations'],['reports','▥','Reports'],['audit','≡','Audit Log'],['settings','☷','Settings']
+  ['automations','⚙','Automation'],['calendar','◷','Calendar'],['notifications','●','Notifications'],['billing','₹','Billing'],['integrations','⌘','Integrations'],['reports','▥','Reports'],['team','♙','Team'],['audit','≡','Audit Log'],['settings','☷','Settings']
 ];
 
 const resources = {
@@ -53,7 +53,7 @@ function Shell({page,setPage,children}) {
     </aside>
     <main className="og-main">
       <header className="og-top"><div><div className="eyebrow">CRM WORKSPACE</div><h1>{nav.find(x=>x[0]===page)?.[2] || 'OmniGoCRM'}</h1></div>
-        <div className="top-tools"><div className="global-search">⌕ <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search CRM"/></div><button className="icon-btn" title="Notifications">🔔</button><span className="status-chip"><i/>Live</span></div>
+        <div className="top-tools"><div className="global-search">⌕ <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search CRM"/></div><button className="icon-btn" title="Notifications" onClick={()=>setPage('notifications')}>🔔</button><span className="status-chip"><i/>Live</span></div>
       </header>
       {children}
     </main>
@@ -181,6 +181,20 @@ function Audit(){
   return <><PageHead title="Audit Log" desc="Track changes and actions performed in the CRM."/><section className="panel table-panel"><table><thead><tr><th>Action</th><th>Object</th><th>ID</th><th>User</th><th>Date</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{x.action}</td><td>{x.object_type}</td><td>{x.object_id}</td><td>{x.user_id}</td><td>{x.created_at}</td></tr>)}</tbody></table>{!rows.length&&<div className="empty">No audit events.</div>}</section></>
 }
 
+
+
+function Team(){
+  const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
+  const load=()=>{setLoading(true);api('/users').then(r=>setRows(r.data||r)).catch(e=>setError(e.message)).finally(()=>setLoading(false))};
+  useEffect(load,[]);
+  return <><PageHead title="Team" desc="View the WordPress users available to your CRM workspace."/>
+    {error&&<div className="og-error">{error}</div>}
+    <section className="panel table-panel">{loading?<div className="empty">Loading…</div>:!rows.length?<div className="empty">No users found.</div>:
+      <table><thead><tr><th>Name</th><th>Email</th><th>WordPress roles</th></tr></thead><tbody>{rows.map(u=><tr key={u.id}><td><b>{u.name}</b></td><td>{u.email}</td><td>{(u.roles||[]).join(', ')||'—'}</td></tr>)}</tbody></table>}
+    </section>
+  </>
+}
+
 function Reports(){
   const [data,setData]=useState(null),[error,setError]=useState('');
   useEffect(()=>{api('/reports/summary').then(r=>setData(r.data||r)).catch(e=>setError(e.message))},[]);
@@ -219,6 +233,6 @@ function TagSettings(){const [rows,setRows]=useState([]);useEffect(()=>api('/tag
 export default function App(){
   const [page,setPage]=useState('dashboard');
   const [leadId,setLeadId]=useState(null);
-  const content=leadId?<LeadDetail leadId={leadId} onBack={()=>setLeadId(null)}/>:page==='dashboard'?<Dashboard go={setPage}/>:page==='conversations'?<Inbox/>:page==='reports'?<Reports/>:page==='calendar'?<Calendar/>:page==='notifications'?<Notifications/>:page==='billing'?<Billing/>:page==='integrations'?<Integrations/>:page==='audit'?<Audit/>:page==='settings'?<Settings/>:resources[page]?<ResourcePage type={page} onSelect={page==='leads'?setLeadId:undefined}/>:<div className="panel empty">This workspace module is being connected to the React API.</div>;
+  const content=leadId?<LeadDetail leadId={leadId} onBack={()=>setLeadId(null)}/>:page==='dashboard'?<Dashboard go={setPage}/>:page==='conversations'?<Inbox/>:page==='reports'?<Reports/>:page==='team'?<Team/>:page==='calendar'?<Calendar/>:page==='notifications'?<Notifications/>:page==='billing'?<Billing/>:page==='integrations'?<Integrations/>:page==='audit'?<Audit/>:page==='settings'?<Settings/>:resources[page]?<ResourcePage type={page} onSelect={page==='leads'?setLeadId:undefined}/>:<div className="panel empty">This workspace module is being connected to the React API.</div>;
   return <Shell page={page} setPage={setPage}>{content}</Shell>;
 }
