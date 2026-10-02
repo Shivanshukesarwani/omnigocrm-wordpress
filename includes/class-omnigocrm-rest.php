@@ -386,11 +386,13 @@ class OmniGoCRM_REST {
         $data=$this->sanitize_data($type,$input,true);if(is_wp_error($data))return $data;
         $data['updated_at']=current_time('mysql');
         $id=(int)$request['id'];
+        $old_invoice_id=0;
+        if($type==='payments')$old_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
         $wpdb->update($this->t[$cfg['table']],$data,array('id'=>$id));
         if($type==='payments'){
-            $old_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
-            $this->reconcile_invoice((int)($data['invoice_id']??$old_invoice_id));
-            if($old_invoice_id && !empty($data['invoice_id']) && (int)$data['invoice_id']!==$old_invoice_id)$this->reconcile_invoice($old_invoice_id);
+            $new_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
+            $this->reconcile_invoice($new_invoice_id);
+            if($old_invoice_id && $old_invoice_id!==$new_invoice_id)$this->reconcile_invoice($old_invoice_id);
         }
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t[$cfg['table']]} WHERE id=%d",$id));
         if(!$row)return new WP_Error('not_found','Record not found.',array('status'=>404));
