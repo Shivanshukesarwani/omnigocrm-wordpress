@@ -301,7 +301,7 @@ class OmniGoCRM_REST {
             'opportunities'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage) NOT IN ('won','lost')"),
             'pipeline_value'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['opportunities']} WHERE stage NOT IN ('Won','Lost','won','lost')"),
             'tasks'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['tasks']} WHERE status NOT IN ('completed','cancelled')"),
-            'invoices_outstanding'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(total),0) FROM {$t['invoices']} WHERE status NOT IN ('paid','cancelled')"),
+            'invoices_outstanding'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(GREATEST(i.total-COALESCE((SELECT SUM(p.amount) FROM {$t['payments']} p WHERE p.invoice_id=i.id AND p.status='paid'),0),0)),0) FROM {$t['invoices']} i WHERE i.status NOT IN ('paid','cancelled')"),
             'paid_revenue'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['payments']} WHERE status='paid'")
         ));
     }
@@ -316,7 +316,7 @@ class OmniGoCRM_REST {
             'won'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage)='won'"),
             'lost'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage)='lost'"),
             'paid_revenue'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['payments']} WHERE status='paid'"),
-            'outstanding'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(total),0) FROM {$t['invoices']} WHERE status NOT IN ('paid','cancelled')"),
+            'outstanding'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(GREATEST(i.total-COALESCE((SELECT SUM(p.amount) FROM {$t['payments']} p WHERE p.invoice_id=i.id AND p.status='paid'),0),0)),0) FROM {$t['invoices']} i WHERE i.status NOT IN ('paid','cancelled')"),
             'leads_by_source'=>$sources,
             'pipeline_by_stage'=>$stages,
             'monthly_revenue'=>$payments
@@ -387,6 +387,11 @@ class OmniGoCRM_REST {
         $data['updated_at']=current_time('mysql');
         $id=(int)$request['id'];
         $wpdb->update($this->t[$cfg['table']],$data,array('id'=>$id));
+        if($type==='payments'){
+            $old_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
+            $this->reconcile_invoice((int)($data['invoice_id']??$old_invoice_id));
+            if($old_invoice_id && !empty($data['invoice_id']) && (int)$data['invoice_id']!==$old_invoice_id)$this->reconcile_invoice($old_invoice_id);
+        }
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t[$cfg['table']]} WHERE id=%d",$id));
         if(!$row)return new WP_Error('not_found','Record not found.',array('status'=>404));
         $this->audit('update',$type,$id);
@@ -399,7 +404,10 @@ class OmniGoCRM_REST {
         $id=(int)$request['id'];
         $exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t[$cfg['table']]} WHERE id=%d",$id));
         if(!$exists)return new WP_Error('not_found','Record not found.',array('status'=>404));
+        $payment_invoice_id=0;
+        if($type==='payments')$payment_invoice_id=(int)$wpdb->get_var($wpdb->prepare("SELECT invoice_id FROM {$this->t['payments']} WHERE id=%d",$id));
         $wpdb->delete($this->t[$cfg['table']],array('id'=>$id));
+        if($type==='payments' && $payment_invoice_id)$this->reconcile_invoice($payment_invoice_id);
         if($type==='quotes')$wpdb->delete($this->t['quote_items'],array('quote_id'=>$id));
         if($type==='orders')$wpdb->delete($this->t['order_items'],array('order_id'=>$id));
         $this->audit('delete',$type,$id);
