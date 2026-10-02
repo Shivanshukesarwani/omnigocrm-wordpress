@@ -244,7 +244,7 @@ function Integrations(){
     setSaving(true);setNotice('');
     try{
       const provider=modal;
-      const created=await api('/integrations',{method:'POST',body:JSON.stringify({name:form.name||provider.name,type:provider.code,status:'configured',config:{client_id:form.client_id||'',scope:form.scope||provider.scopes?.join(' ')||'',auth_url:provider.auth_url||'',token_url:provider.token_url||'',data_center:form.data_center||''}})});
+      const created=await api('/integrations',{method:'POST',body:JSON.stringify({name:form.name||provider.name,type:provider.code,status:'configured',config:{client_id:form.client_id||'',scope:form.scope||provider.scopes?.join(' ')||'',auth_url:provider.auth_url||'',token_url:provider.token_url||'',data_center:form.data_center||'',webhook_url:form.webhook_url||''}})});
       const id=(created.data||created).id;
       if(form.client_secret||form.api_key)await api('/integrations/'+id+'/credentials',{method:'POST',body:JSON.stringify({client_id:form.client_id||'',client_secret:form.client_secret||'',api_key:form.api_key||'',data_center:form.data_center||''})});
       setModal(null);setForm({});setNotice('Integration saved.');load();
