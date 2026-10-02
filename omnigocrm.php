@@ -3,7 +3,7 @@
  * Plugin Name: OmniGoCRM
  * Plugin URI: https://github.com/ShivanshuKesarwani/omnigocrm-wordpress
  * Description: Full WordPress-native CRM and sales workspace with leads, contacts, companies, pipeline, quotes, orders, invoices, payments, omnichannel conversations, automation, reports and settings.
- * Version: 0.4.0
+ * Version: 0.5.0
  * Author: Shivanshu Kesarwani
  * License: GPL-2.0-or-later
  * Text Domain: omnigocrm
@@ -11,7 +11,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('OMNIGOCRM_VERSION', '0.4.0');
+define('OMNIGOCRM_VERSION', '0.5.0');
 define('OMNIGOCRM_FILE', __FILE__);
 define('OMNIGOCRM_DIR', plugin_dir_path(__FILE__));
 define('OMNIGOCRM_URL', plugin_dir_url(__FILE__));
@@ -59,6 +59,23 @@ function omnigocrm_render_app() {
 
 function omnigocrm_assets($hook) {
     if ($hook !== 'toplevel_page_omnigocrm') return;
+
+    $react_source = OMNIGOCRM_DIR . 'app/src/App.jsx';
+    $react_css = OMNIGOCRM_DIR . 'app/src/styles.css';
+    if (file_exists($react_source) && file_exists($react_css)) {
+        wp_enqueue_style('omnigocrm-react', OMNIGOCRM_URL . 'app/src/styles.css', array(), OMNIGOCRM_VERSION);
+        wp_enqueue_script('omnigocrm-react-loader', OMNIGOCRM_URL . 'assets/react-loader.js', array(), OMNIGOCRM_VERSION, true);
+        wp_localize_script('omnigocrm-react-loader', 'OmniGoCRMConfig', array(
+            'restUrl' => esc_url_raw(rest_url('omnigocrm/v1')),
+            'nonce' => wp_create_nonce('wp_rest'),
+            'adminUrl' => admin_url(),
+            'version' => OMNIGOCRM_VERSION,
+            'userId' => get_current_user_id(),
+            'appUrl' => OMNIGOCRM_URL . 'app/src/App.jsx'
+        ));
+        return;
+    }
+
     wp_enqueue_style('omnigocrm-admin', OMNIGOCRM_URL . 'assets/admin.css', array(), OMNIGOCRM_VERSION);
     wp_enqueue_script('omnigocrm-admin', OMNIGOCRM_URL . 'assets/admin.js', array(), OMNIGOCRM_VERSION, true);
     wp_localize_script('omnigocrm-admin', 'OmniGoCRMConfig', array(
