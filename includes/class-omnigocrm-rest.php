@@ -189,7 +189,7 @@ class OmniGoCRM_REST {
             'calls'=>$this->cfg('calls'),'campaigns'=>$this->cfg('campaigns'),'automations'=>$this->cfg('automations'),'integrations'=>$this->cfg('integrations'),
             'quotes'=>$this->cfg('quotes'),'orders'=>$this->cfg('orders'),'invoices'=>$this->cfg('invoices'),'payments'=>$this->cfg('payments')
         ))) as $type) {
-            register_rest_route('omnigocrm/v1','/'.$type,array(
+            register_rest_route('omnigocrm/v1','/(?P<type>'.$type.')',array(
                 array('methods'=>'GET','callback'=>array($this,'resource'),'permission_callback'=>array($this,'permission')),
                 array('methods'=>'POST','callback'=>array($this,'create_resource'),'permission_callback'=>array($this,'manage_permission'))
             ));
