@@ -10,23 +10,23 @@ class OmniGoCRM_REST {
         add_action('omnigocrm_process_jobs', array($this, 'process_jobs'));
     }
 
-    private function permission() {
+    public function permission() {
         return current_user_can('omnigocrm_access') || current_user_can('manage_options');
     }
 
-    private function manage_permission() {
+    public function manage_permission() {
         return current_user_can('omnigocrm_manage') || current_user_can('manage_options');
     }
 
-    private function delete_permission() {
+    public function delete_permission() {
         return current_user_can('omnigocrm_delete') || current_user_can('manage_options');
     }
 
-    private function admin_permission() {
+    public function admin_permission() {
         return current_user_can('omnigocrm_settings') || current_user_can('manage_options');
     }
 
-    private function role_permission() {
+    public function role_permission() {
         return current_user_can('omnigocrm_access') || current_user_can('manage_options');
     }
 
