@@ -18,7 +18,7 @@ const nav = [
   ['dashboard','⌂','Dashboard'],['leads','◉','Leads'],['contacts','◌','Contacts'],['companies','▣','Companies'],
   ['opportunities','◆','Opportunities'],['quotes','▤','Quotes'],['orders','▥','Orders'],['invoices','▦','Invoices'],
   ['products','◇','Products'],['tasks','✓','Tasks'],['conversations','◍','Inbox'],['campaigns','✦','Campaigns'],
-  ['automations','⚙','Automation'],['calendar','◷','Calendar'],['notifications','●','Notifications'],['billing','₹','Billing'],['integrations','⌘','Integrations'],['audit','≡','Audit Log'],['settings','☷','Settings']
+  ['automations','⚙','Automation'],['calendar','◷','Calendar'],['notifications','●','Notifications'],['billing','₹','Billing'],['integrations','⌘','Integrations'],['reports','▥','Reports'],['audit','≡','Audit Log'],['settings','☷','Settings']
 ];
 
 const resources = {
@@ -90,7 +90,7 @@ function LeadDetail({leadId, onBack}) {
   const load=async()=>{try{const [l,n,t,tm]=await Promise.all([api('/leads/'+leadId),api('/notes'),api('/tasks'),api('/whatsapp/templates')]);setLead(l.data||l);setNotes((n.data||n).filter(x=>String(x.lead_id||'')===String(leadId)||String(x.related_id||'')===String(leadId)));setTasks((t.data||t).filter(x=>String(x.related_id||'')===String(leadId)));setTemplates(tm.data||tm)}catch(e){setNotice(e.message)}};
   useEffect(()=>{load()},[leadId]);
   if(!lead)return <><PageHead title="Lead" desc="Loading lead record…"/><div className="panel empty">{notice||'Loading…'}</div></>;
-  const sendWhatsApp=async()=>{if(!message.trim())return;setBusy(true);try{const r=await api('/leads/'+leadId+'/whatsapp/prepare',{method:'POST',body:JSON.stringify({body:message,template_id:0})});setNotice('WhatsApp message prepared. Open WhatsApp to send it.');if(r.whatsapp_url)window.open(r.whatsapp_url,'_blank')}catch(e){setNotice(e.message)}finally{setBusy(false)}};
+  const sendWhatsApp=async()=>{if(!message.trim())return;setBusy(true);try{const r=await api('/leads/'+leadId+'/whatsapp/prepare',{method:'POST',body:JSON.stringify({body:message,template_id:0})});setNotice('WhatsApp message prepared. Open WhatsApp to send it.');if(r.urls?.web)window.open(r.urls.web,'_blank')}catch(e){setNotice(e.message)}finally{setBusy(false)}};
   const convert=async()=>{setBusy(true);try{const r=await api('/leads/'+leadId+'/convert',{method:'POST',body:'{}'});setNotice('Lead converted successfully. Contact #'+r.contact_id+(r.opportunity_id?' · Opportunity #'+r.opportunity_id:''));load()}catch(e){setNotice(e.message)}finally{setBusy(false)}};
   const addNote=async()=>{const body=window.prompt('Note for this lead:');if(!body)return;await api('/notes',{method:'POST',body:JSON.stringify({body,lead_id:leadId,related_type:'lead',related_id:leadId,created_by:cfg.userId||0})});load()};
   const addTask=async()=>{const title=window.prompt('Task title:');if(!title)return;await api('/tasks',{method:'POST',body:JSON.stringify({title,status:'open',priority:'normal',related_type:'lead',related_id:leadId,assigned_to:cfg.userId||0})});load()};
@@ -160,7 +160,7 @@ function Billing(){
   const [plans,setPlans]=useState([]),[sub,setSub]=useState(null);
   useEffect(()=>{Promise.all([api('/plans'),api('/subscription')]).then(([p,s])=>{setPlans(p.data||p);setSub(s.data||s)}).catch(()=>{})},[]);
   const choose=async id=>{await api('/subscription',{method:'POST',body:JSON.stringify({plan_id:id})});setSub({plan_id:id})};
-  return <><PageHead title="Billing" desc="Plans and workspace subscription."/><div className="billing-grid">{plans.map(p=><div className="panel plan-card" key={p.id}><h3>{p.name}</h3><strong>{p.currency||'INR'} {money(p.price)}</strong><p>{p.description||'CRM workspace plan'}</p><Button kind={String(sub?.plan_id)===String(p.id)?'primary':'ghost'} onClick={()=>choose(p.id)}>{String(sub?.plan_id)===String(p.id)?'Current plan':'Select plan'}</Button></div>)}{!plans.length&&<div className="panel empty">No plans configured.</div>}</div></>
+  return <><PageHead title="Billing" desc="Plans and workspace subscription."/><div className="billing-grid">{plans.map(p=><div className="panel plan-card" key={p.id}><h3>{p.name}</h3><strong>{p.currency||'INR'} {money(p.monthly_price)}</strong><p>{p.description||'CRM workspace plan'}</p><Button kind={String(sub?.plan_id)===String(p.id)?'primary':'ghost'} onClick={()=>choose(p.id)}>{String(sub?.plan_id)===String(p.id)?'Current plan':'Select plan'}</Button></div>)}{!plans.length&&<div className="panel empty">No plans configured.</div>}</div></>
 }
 
 function Integrations(){
@@ -186,10 +186,15 @@ function Reports(){
 }
 
 function Settings(){
-  const [tab,setTab]=useState('workspace'),[templates,setTemplates]=useState([]);
+  const [tab,setTab]=useState('workspace'),[templates,setTemplates]=useState([]),[settings,setSettings]=useState(null),[saving,setSaving]=useState(false),[notice,setNotice]=useState('');
+  useEffect(()=>{api('/settings').then(r=>setSettings(r.data||r)).catch(e=>setNotice(e.message));},[]);
   useEffect(()=>{if(tab==='templates')api('/whatsapp/templates').then(r=>setTemplates(r.data||r)).catch(()=>setTemplates([]))},[tab]);
+  const saveSettings=async()=>{if(!settings)return;setSaving(true);try{const r=await api('/settings',{method:'POST',body:JSON.stringify(settings)});setSettings(r.data||r);setNotice('Settings saved.')}catch(e){setNotice(e.message)}finally{setSaving(false)}};
   return <><PageHead title="Settings" desc="Configure your CRM workspace and communication assets."/><div className="settings-tabs">{['workspace','templates','media','pipelines','tags'].map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{labels(x)}</button>)}</div><section className="panel">
-    {tab==='workspace'&&<div className="form-grid"><label>Workspace name<input defaultValue="OmniGoCRM"/></label><label>Currency<input defaultValue="INR"/></label><label>Timezone<input defaultValue="Asia/Kolkata"/></label><label>Default lead status<input defaultValue="new"/></label></div>}
+    {notice&&<div className="og-notice">{notice}</div>}
+    {tab==='workspace'&&settings&&<><div className="form-grid">
+      {['business_name','currency','timezone','lead_default_status','company_website'].map(k=><label key={k}>{labels(k)}<input value={settings[k]??''} onChange={e=>setSettings({...settings,[k]:e.target.value})}/></label>)}
+    </div><div className="modal-actions"><Button kind="primary" onClick={saveSettings} disabled={saving}>{saving?'Saving…':'Save settings'}</Button></div></>}
     {tab==='templates'&&<div>{templates.map(t=><div className="note-row" key={t.id}><b>{t.name}</b><span>{t.body}</span></div>)}{!templates.length&&<div className="empty">No WhatsApp templates found.</div>}</div>}
     {tab==='media'&&<Media/>}{tab==='pipelines'&&<PipelineSettings/>}{tab==='tags'&&<TagSettings/>}
   </section></>
