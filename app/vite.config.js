@@ -13,7 +13,9 @@ export default defineConfig({
       input: resolve(__dirname, 'index.html'),
       output: {
         entryFileNames: 'omnigocrm.js',
-        assetFileNames: 'omnigocrm.css'
+        assetFileNames: 'omnigocrm.css',
+        format: 'iife',
+        name: 'OmniGoCRMApp'
       }
     }
   }
