@@ -123,7 +123,7 @@ function ResourcePage({type,onSelect}) {
     <section className="panel table-panel">{loading?<div className="empty">Loading…</div>:!filtered.length?<div className="empty">No records yet. Create the first one.</div>:
       <table><thead><tr>{meta.fields.slice(0,7).map(f=><th key={f}>{labels(f)}</th>)}</tr></thead><tbody>{filtered.map((r,i)=><tr key={r.id||i} onClick={()=>{setSelected(r);setEditing(false);if(onSelect)onSelect(r.id) }}>{meta.fields.slice(0,7).map(f=><td key={f}>{f==='price'||f==='amount'||f==='total'||f==='value'?money(r[f]):f==='active'?<span className="badge">{r[f]?'Active':'Inactive'}</span>:String(r[f]??'—')}</td>)}</tr>)}</tbody></table>}
     </section>
-    {selected&&<div className="side-detail"><div className="detail-top"><button className="close" onClick={()=>{setSelected(null);setEditing(false)}} disabled={saving}>×</button><div className="detail-person"><div className="big-avatar">{initials(selected.first_name,selected.last_name||selected.name)}</div><div><h2>{selected.name||[selected.first_name,selected.last_name].filter(Boolean).join(' ')}</h2><p>{selected.email||selected.company||selected.status||'CRM record'}</p></div></div><div className="detail-actions"><Button onClick={()=>setEditing(true)} disabled={saving}>Edit</Button><Button kind="danger" onClick={remove} disabled={saving}>Delete</Button></div></div>
+    {selected&&<div className="side-detail"><div className="detail-top"><button className="close" onClick={()=>{setSelected(null);setEditing(false)}} disabled={saving}>×</button><div className="detail-person"><div className="big-avatar">{initials(selected.first_name,selected.last_name||selected.name)}</div><div><h2>{selected.name||[selected.first_name,selected.last_name].filter(Boolean).join(' ')}</h2><p>{selected.email||selected.company||selected.status||'CRM record'}</p></div></div><div className="detail-actions">{type==='automations'&&<Button kind="primary" onClick={async()=>{try{setSaving(true);await api('/automations/'+selected.id+'/run',{method:'POST',body:'{}'});window.alert('Automation queued successfully.')}catch(e){setError(e.message)}finally{setSaving(false)}}} disabled={saving}>Run</Button>}<Button onClick={()=>setEditing(true)} disabled={saving}>Edit</Button><Button kind="danger" onClick={remove} disabled={saving}>Delete</Button></div></div>
       <div className="detail-body">{editing?<RecordModal embedded title={'Edit '+meta.title.replace(/s$/,'')} fields={meta.fields} initial={selected} onClose={()=>setEditing(false)} onSave={update} saving={saving}/>:<div className="detail-card"><h3>Record details</h3>{Object.entries(selected).filter(([k])=>!['id','created_at','updated_at'].includes(k)).slice(0,14).map(([k,v])=><div className="detail-line" key={k}><small>{labels(k)}</small><span>{typeof v==='object'?JSON.stringify(v):String(v??'—')}</span></div>)}</div>}</div></div>}
     {modal&&<RecordModal title={'Create '+meta.title.replace(/s$/,'')} fields={meta.fields} onClose={()=>setModal(false)} onSave={create} saving={saving}/>}
   </>
@@ -142,7 +142,7 @@ function Inbox(){
   const load=()=>api('/conversations').then(r=>setConvs(Array.isArray(r)?r:(r.data||[]))).catch(()=>setConvs([]));
   useEffect(load,[]);
   useEffect(()=>{if(active)api('/conversations/'+active+'/messages').then(r=>setMessages(Array.isArray(r)?r:(r.data||[]))).catch(()=>setMessages([]))},[active]);
-  const send=async()=>{if(!active||!text.trim())return;await api('/conversations/'+active+'/messages',{method:'POST',body:JSON.stringify({body:text,direction:'outbound'})});setText('');api('/conversations/'+active+'/messages').then(r=>setMessages(r.data||r));};
+  const send=async()=>{if(!active||!text.trim())return;try{await api('/conversations/'+active+'/messages',{method:'POST',body:JSON.stringify({body:text,direction:'outbound'})});setText('');const r=await api('/conversations/'+active+'/messages');setMessages(r.data||r)}catch(e){window.alert(e.message)}};
   return <><PageHead title="Omnichannel inbox" desc="Conversations, messages and follow-ups in one place."/><div className="inbox-layout"><section className="panel conversation-list">{convs.map(c=><button className={'conversation-row '+(active===c.id?'active':'')} key={c.id} onClick={()=>setActive(c.id)}><div className="channel-icon">{String(c.channel||'W')[0]}</div><div><b>{c.subject||c.phone||('Conversation #'+c.id)}</b><small>{c.last_message||c.status||'No messages'}</small></div><em>{c.updated_at||''}</em></button>)}{!convs.length&&<div className="empty">No conversations yet.</div>}</section>
   <section className="panel thread-panel">{active?<><div className="thread-head"><h3>Conversation #{active}</h3><span>Messages</span></div><div className="messages">{messages.map((m,i)=><div className={'msg '+(m.direction==='outbound'?'outbound':'')} key={m.id||i}>{m.body||m.message}<small>{m.created_at||''}</small></div>)}</div><div className="composer-bottom"><textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Write a message…"/><Button kind="primary" onClick={send}>Send</Button></div></>:<div className="empty">Select a conversation.</div>}</section></div></>
 }
@@ -157,21 +157,21 @@ function Notifications(){
   const [rows,setRows]=useState([]);
   const load=()=>api('/notifications').then(r=>setRows(r.data||r)).catch(()=>setRows([]));
   useEffect(load,[]);
-  const read=async id=>{await api('/notifications/'+id+'/read',{method:'POST'});load()};
+  const read=async id=>{try{await api('/notifications/'+id+'/read',{method:'POST'});load()}catch(e){window.alert(e.message)}};
   return <><PageHead title="Notifications" desc="CRM alerts and workflow activity."/><section className="panel">{rows.map(x=><div className={'notification '+(x.read_at?'read':'')} key={x.id}><div><b>{x.title}</b><p>{x.body||''}</p><small>{x.created_at||''}</small></div>{!x.read_at&&<Button onClick={()=>read(x.id)}>Mark read</Button>}</div>)}{!rows.length&&<div className="empty">No notifications.</div>}</section></>
 }
 
 function Billing(){
   const [plans,setPlans]=useState([]),[sub,setSub]=useState(null);
   useEffect(()=>{Promise.all([api('/plans'),api('/subscription')]).then(([p,s])=>{setPlans(p.data||p);setSub(s.data||s)}).catch(()=>{})},[]);
-  const choose=async id=>{await api('/subscription',{method:'POST',body:JSON.stringify({plan_id:id})});setSub({plan_id:id})};
+  const choose=async id=>{try{const r=await api('/subscription',{method:'POST',body:JSON.stringify({plan_id:id})});setSub(r.data||r)}catch(e){window.alert(e.message)}};
   return <><PageHead title="Billing" desc="Plans and workspace subscription."/><div className="billing-grid">{plans.map(p=><div className="panel plan-card" key={p.id}><h3>{p.name}</h3><strong>{p.currency||'INR'} {money(p.monthly_price)}</strong><p>{p.description||'CRM workspace plan'}</p><Button kind={String(sub?.plan_id)===String(p.id)?'primary':'ghost'} onClick={()=>choose(p.id)}>{String(sub?.plan_id)===String(p.id)?'Current plan':'Select plan'}</Button></div>)}{!plans.length&&<div className="panel empty">No plans configured.</div>}</div></>
 }
 
 function Integrations(){
   const [rows,setRows]=useState([]),[modal,setModal]=useState(false);
   const load=()=>api('/integrations').then(r=>setRows(r.data||r)).catch(()=>setRows([])); useEffect(load,[]);
-  const save=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await api('/integrations',{method:'POST',body:JSON.stringify({name:f.get('name'),type:f.get('type'),status:'configured',config:{}})});setModal(false);load()};
+  const save=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/integrations',{method:'POST',body:JSON.stringify({name:f.get('name'),type:f.get('type'),status:'configured',config:{}})});setModal(false);load()}catch(err){window.alert(err.message)}};
   return <><PageHead title="Integrations" desc="Connect channels and external services to the CRM." onAdd={()=>setModal(true)} addLabel="Add integration"/><section className="panel">{rows.map(x=><div className="integration-row" key={x.id}><div><b>{x.name}</b><small>{x.type} · {x.status}</small></div></div>)}{!rows.length&&<div className="empty">No integrations configured.</div>}</section>{modal&&<div className="modal-back"><form className="modal" onSubmit={save}><button className="close" type="button" onClick={()=>setModal(false)}>×</button><h2>Add integration</h2><label className="stack">Name<input name="name" required/></label><label className="stack">Type<input name="type" placeholder="whatsapp, email, sms..." required/></label><div className="modal-actions"><Button type="button" onClick={()=>setModal(false)}>Cancel</Button><Button kind="primary" type="submit">Save</Button></div></form></div>}</>
 }
 
@@ -184,14 +184,22 @@ function Audit(){
 
 
 function Team(){
-  const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
-  const load=()=>{setLoading(true);api('/users').then(r=>setRows(r.data||r)).catch(e=>setError(e.message)).finally(()=>setLoading(false))};
+  const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[modal,setModal]=useState(false),[saving,setSaving]=useState(false);
+  const load=()=>{setLoading(true);setError('');api('/users').then(r=>setRows(r.data||r)).catch(e=>setError(e.message)).finally(()=>setLoading(false))};
   useEffect(load,[]);
-  return <><PageHead title="Team" desc="View the WordPress users available to your CRM workspace."/>
+  const create=async e=>{e.preventDefault();setSaving(true);setError('');const f=new FormData(e.currentTarget);try{await api('/users',{method:'POST',body:JSON.stringify({name:f.get('name'),email:f.get('email'),password:f.get('password'),role:f.get('role')})});setModal(false);load()}catch(err){setError(err.message)}finally{setSaving(false)}};
+  return <><PageHead title="Team" desc="Manage the WordPress users available to your CRM workspace." onAdd={()=>setModal(true)} addLabel="Add user"/>
     {error&&<div className="og-error">{error}</div>}
     <section className="panel table-panel">{loading?<div className="empty">Loading…</div>:!rows.length?<div className="empty">No users found.</div>:
       <table><thead><tr><th>Name</th><th>Email</th><th>WordPress roles</th></tr></thead><tbody>{rows.map(u=><tr key={u.id}><td><b>{u.name}</b></td><td>{u.email}</td><td>{(u.roles||[]).join(', ')||'—'}</td></tr>)}</tbody></table>}
     </section>
+    {modal&&<div className="modal-back"><form className="modal" onSubmit={create}><button className="close" type="button" onClick={()=>setModal(false)} disabled={saving}>×</button><h2>Add CRM user</h2>
+      <label className="stack">Name<input name="name" required disabled={saving}/></label>
+      <label className="stack">Email<input name="email" type="email" required disabled={saving}/></label>
+      <label className="stack">Password<input name="password" type="password" placeholder="Leave blank to generate" disabled={saving}/></label>
+      <label className="stack">CRM role<select name="role" defaultValue="agent" disabled={saving}><option value="viewer">Viewer</option><option value="agent">Agent</option><option value="manager">Manager</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label>
+      <div className="modal-actions"><Button type="button" onClick={()=>setModal(false)} disabled={saving}>Cancel</Button><Button kind="primary" type="submit" disabled={saving}>{saving?'Saving…':'Create user'}</Button></div>
+    </form></div>}
   </>
 }
 
