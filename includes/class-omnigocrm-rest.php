@@ -623,7 +623,9 @@ class OmniGoCRM_REST {
     public function delete_order_item($request){global $wpdb;$id=(int)$request['id'];$parent=(int)$request['order_id'];$wpdb->delete($this->t['order_items'],array('id'=>$id,'order_id'=>$parent));$this->recalc_items('order',$parent);$this->audit('delete','order_item',$id);return rest_ensure_response(array('success'=>true));}
 
     private function add_line_item($type,$request){
-        global $wpdb;$p=$request->get_json_params();$parent=$type==='quote'?'quote_id':'order_id';$table=$type==='quote'?$this->t['quote_items']:$this->t['order_items'];$id=(int)$request['id'];
+        global $wpdb;$p=$request->get_json_params();$parent=$type==='quote'?'quote_id':'order_id';$table=$type==='quote'?$this->t['quote_items']:$this->t['order_items'];$parent_table=$type==='quote'?$this->t['quotes']:$this->t['orders'];$id=(int)$request['id'];
+        $parent_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$parent_table} WHERE id=%d",$id));
+        if(!$parent_exists)return new WP_Error('not_found',ucfirst($type).' not found.',array('status'=>404));
         if(empty($p['description']))return new WP_Error('validation','Item description is required.',array('status'=>400));
         $qty=max(0.01,(float)($p['quantity']??1));$price=max(0,(float)($p['unit_price']??0));$tax=max(0,(float)($p['tax_rate']??0));$total=$qty*$price*(1+$tax/100);
         $wpdb->insert($table,array($parent=>$id,'product_id'=>(int)($p['product_id']??0),'description'=>$this->textarea($p['description']),'quantity'=>$qty,'unit_price'=>$price,'tax_rate'=>$tax,'total'=>$total));
