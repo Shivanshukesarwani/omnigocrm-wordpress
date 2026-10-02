@@ -323,17 +323,70 @@ class OmniGoCRM_REST {
     public function reports() {
         global $wpdb;
         $t=$this->t;
-        $sources=$wpdb->get_results("SELECT source,COUNT(*) count FROM {$t['leads']} GROUP BY source ORDER BY count DESC");
-        $stages=$wpdb->get_results("SELECT stage,COUNT(*) count,COALESCE(SUM(amount),0) value FROM {$t['opportunities']} GROUP BY stage ORDER BY count DESC");
-        $payments=$wpdb->get_results("SELECT DATE_FORMAT(created_at,'%Y-%m') month,COALESCE(SUM(amount),0) revenue FROM {$t['payments']} WHERE status='paid' GROUP BY DATE_FORMAT(created_at,'%Y-%m') ORDER BY month DESC LIMIT 12");
+
+        $total_leads=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['leads']}");
+        $converted_leads=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['leads']} WHERE LOWER(status)='converted'");
+        $open_leads=max(0,$total_leads-$converted_leads);
+        $conversion_rate=$total_leads?round(($converted_leads/$total_leads)*100,1):0;
+
+        $won=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage)='won'");
+        $lost=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage)='lost'");
+        $open_opps=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage) NOT IN ('won','lost')");
+        $pipeline=(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['opportunities']} WHERE LOWER(stage) NOT IN ('won','lost')");
+        $weighted_pipeline=(float)$wpdb->get_var("SELECT COALESCE(SUM(amount*probability/100),0) FROM {$t['opportunities']} WHERE LOWER(stage) NOT IN ('won','lost')");
+        $won_value=(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['opportunities']} WHERE LOWER(stage)='won'");
+        $lost_value=(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['opportunities']} WHERE LOWER(stage)='lost'");
+        $win_rate=($won+$lost)?round(($won/($won+$lost))*100,1):0;
+        $avg_deal=$won?$won_value/$won:0;
+
+        $paid_revenue=(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['payments']} WHERE status='paid'");
+        $outstanding=(float)$wpdb->get_var("SELECT COALESCE(SUM(GREATEST(i.total-COALESCE((SELECT SUM(p.amount) FROM {$t['payments']} p WHERE p.invoice_id=i.id AND p.status='paid'),0),0)),0) FROM {$t['invoices']} i WHERE i.status NOT IN ('paid','cancelled')");
+        $overdue=(float)$wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(GREATEST(i.total-COALESCE((SELECT SUM(p.amount) FROM {$t['payments']} p WHERE p.invoice_id=i.id AND p.status='paid'),0),0)),0) FROM {$t['invoices']} i WHERE i.status NOT IN ('paid','cancelled') AND i.due_date IS NOT NULL AND i.due_date < %s",current_time('Y-m-d')));
+
+        $cycle_days=(float)$wpdb->get_var("SELECT COALESCE(AVG(DATEDIFF(updated_at,created_at)),0) FROM {$t['opportunities']} WHERE LOWER(stage)='won'");
+        $sources=$wpdb->get_results("SELECT source,COUNT(*) count,SUM(CASE WHEN LOWER(status)='converted' THEN 1 ELSE 0 END) converted FROM {$t['leads']} GROUP BY source ORDER BY count DESC");
+        foreach($sources as $row){$row->conversion_rate=$row->count?round(((int)$row->converted/(int)$row->count)*100,1):0;}
+
+        $stages=$wpdb->get_results("SELECT stage,COUNT(*) count,COALESCE(SUM(amount),0) value,COALESCE(SUM(amount*probability/100),0) weighted_value FROM {$t['opportunities']} GROUP BY stage ORDER BY count DESC");
+        $months=$wpdb->get_results("SELECT DATE_FORMAT(created_at,'%Y-%m') month,COUNT(*) leads,SUM(CASE WHEN LOWER(status)='converted' THEN 1 ELSE 0 END) converted FROM {$t['leads']} WHERE created_at >= DATE_SUB(NOW(),INTERVAL 12 MONTH) GROUP BY DATE_FORMAT(created_at,'%Y-%m') ORDER BY month ASC");
+        $revenue=$wpdb->get_results("SELECT DATE_FORMAT(created_at,'%Y-%m') month,COALESCE(SUM(amount),0) revenue FROM {$t['payments']} WHERE status='paid' AND created_at >= DATE_SUB(NOW(),INTERVAL 12 MONTH) GROUP BY DATE_FORMAT(created_at,'%Y-%m') ORDER BY month ASC");
+        $activity=$wpdb->get_results("SELECT 'calls' type,COUNT(*) count FROM {$t['calls']} UNION ALL SELECT 'tasks' type,COUNT(*) count FROM {$t['tasks']} UNION ALL SELECT 'messages' type,COUNT(*) count FROM {$t['messages']} UNION ALL SELECT 'notes' type,COUNT(*) count FROM {$t['notes']}");
+
+        $top_opportunities=$wpdb->get_results("SELECT id,name,company,amount,currency,stage,probability,close_date FROM {$t['opportunities']} WHERE LOWER(stage) NOT IN ('won','lost') ORDER BY amount DESC LIMIT 10");
+        $forecast=array(
+            'pipeline'=>$pipeline,
+            'weighted_pipeline'=>$weighted_pipeline,
+            'won_value'=>$won_value,
+            'open_opportunities'=>$open_opps
+        );
+
         return rest_ensure_response(array(
-            'won'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage)='won'"),
-            'lost'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['opportunities']} WHERE LOWER(stage)='lost'"),
-            'paid_revenue'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$t['payments']} WHERE status='paid'"),
-            'outstanding'=>(float)$wpdb->get_var("SELECT COALESCE(SUM(GREATEST(i.total-COALESCE((SELECT SUM(p.amount) FROM {$t['payments']} p WHERE p.invoice_id=i.id AND p.status='paid'),0),0)),0) FROM {$t['invoices']} i WHERE i.status NOT IN ('paid','cancelled')"),
+            'summary'=>array(
+                'total_leads'=>$total_leads,
+                'converted_leads'=>$converted_leads,
+                'open_leads'=>$open_leads,
+                'conversion_rate'=>$conversion_rate,
+                'won'=>$won,
+                'lost'=>$lost,
+                'win_rate'=>$win_rate,
+                'open_opportunities'=>$open_opps,
+                'pipeline_value'=>$pipeline,
+                'weighted_pipeline'=>$weighted_pipeline,
+                'won_value'=>$won_value,
+                'lost_value'=>$lost_value,
+                'average_won_deal'=>$avg_deal,
+                'sales_cycle_days'=>round($cycle_days,1),
+                'paid_revenue'=>$paid_revenue,
+                'outstanding'=>$outstanding,
+                'overdue'=>$overdue
+            ),
             'leads_by_source'=>$sources,
             'pipeline_by_stage'=>$stages,
-            'monthly_revenue'=>$payments
+            'monthly_leads'=>$months,
+            'monthly_revenue'=>$revenue,
+            'activity'=>$activity,
+            'top_opportunities'=>$top_opportunities,
+            'forecast'=>$forecast
         ));
     }
 
