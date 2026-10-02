@@ -1,4 +1,4 @@
-import React from 'react';
+import * as React from '@wordpress/element';
 
 const cfg = window.OmniGoCRMConfig || {};
 const { useState, useEffect, useMemo } = React;
