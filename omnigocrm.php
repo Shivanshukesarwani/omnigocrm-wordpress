@@ -105,3 +105,13 @@ function omnigocrm_assets($hook) {
     ));
 }
 add_action('admin_enqueue_scripts', 'omnigocrm_assets');
+
+// Vite's production output may contain ES module imports. WordPress prints
+// enqueued scripts as classic scripts by default, so mark the CRM bundle as a module.
+add_filter('script_loader_tag', function ($tag, $handle, $src) {
+    if ($handle === 'omnigocrm-react' && strpos($tag, ' type=') === false) {
+        return '<script type="module" src="' . esc_url($src) . '"></script>';
+    }
+    return $tag;
+}, 10, 3);
+
