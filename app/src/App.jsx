@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 const cfg = window.OmniGoCRMConfig || {};
+const { useState, useEffect, useMemo } = React;
 const API = String(cfg.restUrl || '').replace(/\/$/, '');
 const nonce = cfg.nonce || '';
 
