@@ -371,6 +371,10 @@ class OmniGoCRM_REST {
         $input=$request->get_json_params(); if(!is_array($input))$input=array();
         $data=$this->sanitize_data($type,$input,false);if(is_wp_error($data))return $data;
         if($type==='leads' && empty($data['source']))$data['source']='manual';
+        if($type==='payments' && !empty($data['invoice_id'])){
+            $invoice_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['invoices']} WHERE id=%d",(int)$data['invoice_id']));
+            if(!$invoice_exists)return new WP_Error('not_found','Invoice not found.',array('status'=>404));
+        }
         if(in_array($type,array('leads','contacts','companies','opportunities'),true) && empty($data['owner_id']))$data['owner_id']=get_current_user_id();
         if($type==='tasks' && empty($data['assigned_to']))$data['assigned_to']=get_current_user_id();
         if($type==='notes' && empty($data['created_by']))$data['created_by']=get_current_user_id();
@@ -725,7 +729,12 @@ class OmniGoCRM_REST {
     }
 
     public function notification_read($request) {
-        global $wpdb;$id=(int)$request['id'];$wpdb->update($this->t['notifications'],array('read_at'=>current_time('mysql')),array('id'=>$id,'user_id'=>get_current_user_id()));return rest_ensure_response(array('success'=>true));
+        global $wpdb;
+        $id=(int)$request['id'];
+        $exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['notifications']} WHERE id=%d AND user_id=%d",$id,get_current_user_id()));
+        if(!$exists)return new WP_Error('not_found','Notification not found.',array('status'=>404));
+        $wpdb->update($this->t['notifications'],array('read_at'=>current_time('mysql')),array('id'=>$id,'user_id'=>get_current_user_id()));
+        return rest_ensure_response(array('success'=>true,'id'=>$id));
     }
 
     public function audit_logs(){global $wpdb;return rest_ensure_response(array('data'=>$wpdb->get_results("SELECT * FROM {$this->t['audit']} ORDER BY created_at DESC LIMIT 250")));}
@@ -775,14 +784,25 @@ class OmniGoCRM_REST {
         foreach($jobs as $job){
             $wpdb->update($this->t['automation_jobs'],array('status'=>'running','updated_at'=>$now),array('id'=>$job->id));
             $definition=json_decode($job->definition?:'{}',true);$ok=true;$error='';
-            if(isset($definition['actions'])&&is_array($definition['actions'])){
+            if(!$job->active){
+                $ok=false;$error='Automation is inactive.';
+            } elseif(json_last_error()!==JSON_ERROR_NONE || !is_array($definition)){
+                $ok=false;$error='Invalid automation definition.';
+            }
+            if($ok && isset($definition['actions'])&&is_array($definition['actions'])){
                 foreach($definition['actions'] as $action){
                     $type=$action['type']??'notify';
                     if($type==='notify'){
-                        $user_id=(int)($action['user_id']??get_current_user_id());$wpdb->insert($this->t['notifications'],array('user_id'=>$user_id,'type'=>'automation','title'=>$action['title']??$job->automation_name,'body'=>$action['body']??'Automation completed.','data'=>wp_json_encode($action['data']??array()),'created_at'=>$now));
+                        $user_id=(int)($action['user_id']??get_current_user_id());
+                        $ok=(bool)$wpdb->insert($this->t['notifications'],array('user_id'=>$user_id,'type'=>'automation','title'=>$action['title']??$job->automation_name,'body'=>$action['body']??'Automation completed.','data'=>wp_json_encode($action['data']??array()),'created_at'=>$now));
+                        if(!$ok)$error=$wpdb->last_error?:'Could not create automation notification.';
                     }elseif($type==='create_task'){
-                        $wpdb->insert($this->t['tasks'],array('title'=>$action['title']??$job->automation_name,'description'=>$this->textarea($action['description']??''),'status'=>'open','priority'=>$this->clean($action['priority']??'normal'),'assigned_to'=>(int)($action['assigned_to']??0),'created_at'=>$now,'updated_at'=>$now));
+                        $ok=(bool)$wpdb->insert($this->t['tasks'],array('title'=>$action['title']??$job->automation_name,'description'=>$this->textarea($action['description']??''),'status'=>'open','priority'=>$this->clean($action['priority']??'normal'),'assigned_to'=>(int)($action['assigned_to']??0),'created_at'=>$now,'updated_at'=>$now));
+                        if(!$ok)$error=$wpdb->last_error?:'Could not create automation task.';
+                    }else{
+                        $ok=false;$error='Unsupported automation action: '.$type;
                     }
+                    if(!$ok)break;
                 }
             }
             if($ok)$wpdb->update($this->t['automation_jobs'],array('status'=>'completed','updated_at'=>$now),array('id'=>$job->id));
