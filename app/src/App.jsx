@@ -110,11 +110,11 @@ function LeadDetail({leadId, onBack}) {
 }
 
 function ResourcePage({type,onSelect}) {
-  const meta=resources[type], [rows,setRows]=useState([]), [loading,setLoading]=useState(true), [error,setError]=useState(''), [q,setQ]=useState(''), [selected,setSelected]=useState(null), [modal,setModal]=useState(false);
-  const load=()=>{setLoading(true);api(meta.endpoint).then(r=>setRows(Array.isArray(r)?r:(r.data||r.items||[]))).catch(e=>setError(e.message)).finally(()=>setLoading(false))};
+  const meta=resources[type], [rows,setRows]=useState([]), [loading,setLoading]=useState(true), [error,setError]=useState(''), [q,setQ]=useState(''), [selected,setSelected]=useState(null), [modal,setModal]=useState(false), [saving,setSaving]=useState(false);
+  const load=()=>{setLoading(true);setError('');api(meta.endpoint).then(r=>setRows(Array.isArray(r)?r:(r.data||r.items||[]))).catch(e=>setError(e.message)).finally(()=>setLoading(false))};
   useEffect(load,[]);
   const filtered=useMemo(()=>rows.filter(r=>JSON.stringify(r).toLowerCase().includes(q.toLowerCase())),[rows,q]);
-  const create=async form=>{await api(meta.endpoint,{method:'POST',body:JSON.stringify(form)});setModal(false);load()};
+  const create=async form=>{setSaving(true);setError('');try{await api(meta.endpoint,{method:'POST',body:JSON.stringify(form)});setModal(false);load()}catch(e){setError(e.message)}finally{setSaving(false)}};
   return <><PageHead title={meta.title} desc={'Manage '+meta.title.toLowerCase()+' from one workspace.'} onAdd={()=>setModal(true)} addLabel={'Add '+meta.title.replace(/s$/,'')}/>
     <div className="toolbar-card"><div className="table-search">⌕<input value={q} onChange={e=>setQ(e.target.value)} placeholder={'Search '+meta.title.toLowerCase()}/></div><span className="result-count">{filtered.length} records</span></div>
     {error&&<div className="og-error">{error}</div>}
@@ -122,15 +122,15 @@ function ResourcePage({type,onSelect}) {
       <table><thead><tr>{meta.fields.slice(0,7).map(f=><th key={f}>{labels(f)}</th>)}</tr></thead><tbody>{filtered.map((r,i)=><tr key={r.id||i} onClick={()=>{setSelected(r);if(onSelect)onSelect(r.id) }}>{meta.fields.slice(0,7).map(f=><td key={f}>{f==='price'||f==='amount'||f==='total'||f==='value'?money(r[f]):f==='active'?<span className="badge">{r[f]?'Active':'Inactive'}</span>:String(r[f]??'—')}</td>)}</tr>)}</tbody></table>}
     </section>
     {selected&&<div className="side-detail"><div className="detail-top"><button className="close" onClick={()=>setSelected(null)}>×</button><div className="detail-person"><div className="big-avatar">{initials(selected.first_name,selected.last_name||selected.name)}</div><div><h2>{selected.name||[selected.first_name,selected.last_name].filter(Boolean).join(' ')}</h2><p>{selected.email||selected.company||selected.status||'CRM record'}</p></div></div></div><div className="detail-body"><div className="detail-card"><h3>Record details</h3>{Object.entries(selected).filter(([k])=>!['id','created_at','updated_at'].includes(k)).slice(0,14).map(([k,v])=><div className="detail-line" key={k}><small>{labels(k)}</small><span>{typeof v==='object'?JSON.stringify(v):String(v??'—')}</span></div>)}</div></div></div>}
-    {modal&&<RecordModal title={'Create '+meta.title.replace(/s$/,'')} fields={meta.fields} onClose={()=>setModal(false)} onSave={create}/>}
+    {modal&&<RecordModal title={'Create '+meta.title.replace(/s$/,'')} fields={meta.fields} onClose={()=>setModal(false)} onSave={create} saving={saving}/>}
   </>
 }
 
-function RecordModal({title,fields,onClose,onSave}) {
+function RecordModal({title,fields,onClose,onSave,saving=false}) {
   const [form,setForm]=useState({});
-  return <div className="modal-back"><div className="modal wide"><button className="close" onClick={onClose}>×</button><h2>{title}</h2><div className="form-grid">
-    {fields.map(f=><label key={f}>{labels(f)}<input value={form[f]??''} onChange={e=>setForm({...form,[f]:e.target.value})} /></label>)}
-  </div><div className="modal-actions"><Button onClick={onClose}>Cancel</Button><Button kind="primary" onClick={()=>onSave(form)}>Save</Button></div></div></div>
+  return <div className="modal-back"><div className="modal wide"><button className="close" onClick={onClose} disabled={saving}>×</button><h2>{title}</h2><div className="form-grid">
+    {fields.map(f=><label key={f}>{labels(f)}<input value={form[f]??''} onChange={e=>setForm({...form,[f]:e.target.value})} disabled={saving} /></label>)}
+  </div><div className="modal-actions"><Button onClick={onClose} disabled={saving}>Cancel</Button><Button kind="primary" onClick={()=>onSave(form)} disabled={saving}>{saving?'Saving…':'Save'}</Button></div></div></div>
 }
 
 function Inbox(){
