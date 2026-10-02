@@ -236,6 +236,13 @@ class OmniGoCRM_REST {
             array('methods'=>'POST','callback'=>array($this,'create_tag'),'permission_callback'=>array($this,'manage_permission'))
         ));
         register_rest_route('omnigocrm/v1','/tags/(?P<id>\d+)',array('methods'=>'DELETE','callback'=>array($this,'delete_tag'),'permission_callback'=>array($this,'manage_permission')));
+        register_rest_route('omnigocrm/v1','/tags/(?P<id>\d+)/entities',array(
+            array('methods'=>'GET','callback'=>array($this,'tag_entities'),'permission_callback'=>array($this,'permission')),
+            array('methods'=>'POST','callback'=>array($this,'assign_tag_entity'),'permission_callback'=>array($this,'manage_permission'))
+        ));
+        register_rest_route('omnigocrm/v1','/tags/(?P<tag_id>\d+)/entities/(?P<entity_type>[a-zA-Z0-9_-]+)/(?P<entity_id>\d+)',array(
+            array('methods'=>'DELETE','callback'=>array($this,'remove_tag_entity'),'permission_callback'=>array($this,'manage_permission'))
+        ));
         register_rest_route('omnigocrm/v1','/pipelines',array(
             array('methods'=>'GET','callback'=>array($this,'pipelines'),'permission_callback'=>array($this,'permission')),
             array('methods'=>'POST','callback'=>array($this,'create_pipeline'),'permission_callback'=>array($this,'manage_permission'))
@@ -565,6 +572,44 @@ class OmniGoCRM_REST {
         $now=current_time('mysql');$wpdb->insert($this->t['tags'],array('name'=>$name,'color'=>$this->clean($p['color']??''),'created_at'=>$now));
         if(!$wpdb->insert_id)return new WP_Error('db_error',$wpdb->last_error?:'Could not create tag.',array('status'=>500));
         $this->audit('create','tag',$wpdb->insert_id);return new WP_REST_Response(array('data'=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->t['tags']} WHERE id=%d",$wpdb->insert_id))),201);
+    }
+
+    public function tag_entities($request){
+        global $wpdb;
+        $tag_id=(int)$request['id'];
+        $exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['tags']} WHERE id=%d",$tag_id));
+        if(!$exists)return new WP_Error('not_found','Tag not found.',array('status'=>404));
+        $rows=$wpdb->get_results($wpdb->prepare("SELECT entity_type,entity_id FROM {$this->t['entity_tags']} WHERE tag_id=%d ORDER BY entity_type,entity_id",$tag_id));
+        return rest_ensure_response(array('data'=>$rows));
+    }
+
+    public function assign_tag_entity($request){
+        global $wpdb;
+        $tag_id=(int)$request['id'];
+        $p=$request->get_json_params();
+        $entity_type=sanitize_key($p['entity_type']??'');
+        $entity_id=(int)($p['entity_id']??0);
+        if(!$entity_type||!$entity_id)return new WP_Error('validation','Entity type and entity ID are required.',array('status'=>400));
+        $tag_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t['tags']} WHERE id=%d",$tag_id));
+        if(!$tag_exists)return new WP_Error('not_found','Tag not found.',array('status'=>404));
+        $allowed=array('lead'=>'leads','contact'=>'contacts','company'=>'companies','opportunity'=>'opportunities','task'=>'tasks','product'=>'products','call'=>'calls','campaign'=>'campaigns','automation'=>'automations','quote'=>'quotes','order'=>'orders','invoice'=>'invoices','payment'=>'payments');
+        if(!isset($allowed[$entity_type]))return new WP_Error('validation','Unsupported entity type.',array('status'=>400));
+        $entity_exists=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->t[$allowed[$entity_type]]} WHERE id=%d",$entity_id));
+        if(!$entity_exists)return new WP_Error('not_found','Entity not found.',array('status'=>404));
+        $wpdb->query($wpdb->prepare("INSERT IGNORE INTO {$this->t['entity_tags']} (tag_id,entity_type,entity_id) VALUES (%d,%s,%d)",$tag_id,$entity_type,$entity_id));
+        $this->audit('assign','tag',$tag_id,array('entity_type'=>$entity_type,'entity_id'=>$entity_id));
+        return rest_ensure_response(array('success'=>true,'tag_id'=>$tag_id,'entity_type'=>$entity_type,'entity_id'=>$entity_id));
+    }
+
+    public function remove_tag_entity($request){
+        global $wpdb;
+        $tag_id=(int)$request['tag_id'];
+        $entity_type=sanitize_key($request['entity_type']);
+        $entity_id=(int)$request['entity_id'];
+        $deleted=$wpdb->delete($this->t['entity_tags'],array('tag_id'=>$tag_id,'entity_type'=>$entity_type,'entity_id'=>$entity_id));
+        if(!$deleted)return new WP_Error('not_found','Tag assignment not found.',array('status'=>404));
+        $this->audit('unassign','tag',$tag_id,array('entity_type'=>$entity_type,'entity_id'=>$entity_id));
+        return rest_ensure_response(array('success'=>true));
     }
 
     public function delete_tag($request){
