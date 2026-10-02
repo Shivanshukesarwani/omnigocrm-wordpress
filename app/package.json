@@ -1,7 +1,7 @@
 {
   "name": "omnigocrm-react-admin",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.5.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "@wordpress/element": "^6.2.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.4",
