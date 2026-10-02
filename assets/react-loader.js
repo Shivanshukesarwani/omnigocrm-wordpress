@@ -20,7 +20,7 @@
     fetch(window.OmniGoCRMConfig.appUrl, { credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error('Unable to load React app source.'); return r.text(); })
       .then(function (source) {
-        source = source.replace(/^import[^\\n]*\\n/gm, '').replace(/export default function App/, 'function App');
+        source = source.replace(/^import[^\n]*\n/gm, '').replace(/export default function App/, 'function App');
         var transformed = Babel.transform(source, { presets: ['react'] }).code;
         new Function('React', 'ReactDOM', transformed + '\\nReactDOM.createRoot(document.getElementById("omnigocrm-app")).render(React.createElement(App));')(window.React, window.ReactDOM);
       })
